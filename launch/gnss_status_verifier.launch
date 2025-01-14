@@ -1,0 +1,28 @@
+<!-- It will verify the gnss covariances sensor_msgs/NavSatFix and republish the 
+same gnss data but modifing the status to 2 (ground-based augmentation)  -->
+<launch>
+
+  <arg name="gnss_topic_in" default="hw_api/gnss"/>
+  <arg name="bestpos_topic_in" default="rtk/bestpos"/>
+  <arg name="use_bestpos" default="false"/>
+  <arg name="gnss_topic_out" default="gnss_wstatus"/>
+  <arg name="covariance_threshold" default="1.1"/>
+  <arg name="UAV_NAME" default="$(optenv UAV_NAME uav1)"/>
+
+  <group ns="$(arg UAV_NAME)">
+    <node name="gnss_verifier" pkg="mrs_openswarm_utils" type="gnss_verifier" output="screen">
+        <param name="subscribed_topic" value="$(arg gnss_topic_in)"/>
+        <param name="bestpos_topic" value="$(arg bestpos_topic_in)"/>
+        <param name="published_topic" value="$(arg gnss_topic_out)"/>
+        <param name="use_bestpos" value="$(arg use_bestpos)"/>
+        <param name="threshold" value="$(arg covariance_threshold)"/>
+    </node>
+  </group> 
+
+</launch>
+
+<!-- STATUS_FIX (https://docs.ros.org/en/noetic/api/sensor_msgs/html/msg/NavSatStatus.html)
+int8 STATUS_NO_FIX =  -1        # unable to fix position
+int8 STATUS_FIX =      0        # unaugmented fix
+int8 STATUS_SBAS_FIX = 1        # with satellite-based augmentation
+int8 STATUS_GBAS_FIX = 2        # with ground-based augmentation -->

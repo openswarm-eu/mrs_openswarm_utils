@@ -1,0 +1,4 @@
+float32 resolution
+string destination
+---
+sensor_msgs/PointCloud2 merged_cloud

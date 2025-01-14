@@ -1,0 +1,17 @@
+<launch>
+
+    <arg name="imu_topic_in" default="hw_api/imu"/>
+    <arg name="imu_topic_out" default="imu"/>
+    <arg name="maxSize" default="1000"/>
+
+    <arg name="UAV_NAME" default="$(optenv UAV_NAME uav1)"/>
+
+    <group ns="$(arg UAV_NAME)">
+        <node pkg="mrs_ingeniarius_utils" type="imu_calibration" name="imu_calibration" output="screen" respawn="true">
+            <param name="subscribed_topic" value="$(arg imu_topic_in)"/>
+            <param name="published_topic" value="$(arg imu_topic_out)"/>
+            <param name="maxSize" value="$(arg maxSize)"/>
+        </node>
+    </group>
+
+</launch>
