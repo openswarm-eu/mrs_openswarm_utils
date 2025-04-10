@@ -241,6 +241,9 @@ target_link_libraries(base_station_send_tf ${catkin_LIBRARIES})
 add_executable(imu_calibration src/imu_calibration.cpp)
 target_link_libraries(imu_calibration ${catkin_LIBRARIES})
 
+add_executable(tf_relay_node src/tf_relay_node.cpp)
+target_link_libraries(tf_relay_node ${catkin_LIBRARIES})
+
 link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 

@@ -1,0 +1,10 @@
+<launch>
+
+    <arg name="UAV_NAME" default="$(optenv UAV_NAME uav1)"/>
+
+    <group ns="$(arg UAV_NAME)">
+        <node pkg="mrs_ingeniarius_utils" type="tf_relay_node" name="tf_relay_node" output="screen" respawn="true">
+        </node>
+    </group>
+
+</launch>
