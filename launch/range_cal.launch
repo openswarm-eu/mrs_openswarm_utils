@@ -1,0 +1,17 @@
+<launch>
+
+    <arg name="range_topic_in" default="hw_api/distance_sensor_in"/>
+    <arg name="range_topic_out" default="hw_api/distance_sensor"/>
+    <arg name="maxSize" default="1000"/>
+
+    <arg name="UAV_NAME" default="$(optenv UAV_NAME uav1)"/>
+
+    <group ns="$(arg UAV_NAME)">
+        <node pkg="mrs_openswarm_utils" type="distance_calibration" name="distance_calibration" output="screen" respawn="true">
+            <param name="subscribed_topic" value="$(arg range_topic_in)"/>
+            <param name="published_topic" value="$(arg range_topic_out)"/>
+            <param name="maxSize" value="$(arg maxSize)"/>
+        </node>
+    </group>
+
+</launch>

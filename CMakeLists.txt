@@ -41,15 +41,7 @@ find_package(catkin REQUIRED COMPONENTS
 ################################################
 
 ## To declare and build messages, services or actions from within this
-## package, follow these steps:
-## * Let MSG_DEP_SET be the set of packages whose message types you use in
-##   your messages/services/actions (e.g. std_msgs, actionlib_msgs, ...).
-## * In the file package.xml:
-##   * add a build_depend tag for "message_generation"
-##   * add a build_depend and a exec_depend tag for each package in MSG_DEP_SET
-##   * If MSG_DEP_SET isn't empty the following dependency has been pulled in
-##     but can be declared for certainty nonetheless:
-##     * add a exec_depend tag for "message_runtime"
+## package, folimuexec_depend tag for "message_runtime"
 ## * In this file (CMakeLists.txt):
 ##   * add "message_generation" and every package in MSG_DEP_SET to
 ##     find_package(catkin REQUIRED COMPONENTS ...)
@@ -241,6 +233,9 @@ target_link_libraries(base_station_send_tf ${catkin_LIBRARIES})
 add_executable(imu_calibration src/imu_calibration.cpp)
 target_link_libraries(imu_calibration ${catkin_LIBRARIES})
 
+add_executable(distance_calibration src/distance_calibration.cpp)
+target_link_libraries(distance_calibration ${catkin_LIBRARIES})
+
 add_executable(tf_relay_node src/tf_relay_node.cpp)
 target_link_libraries(tf_relay_node ${catkin_LIBRARIES})
 
@@ -252,6 +247,6 @@ target_link_libraries(map_global_generation ${catkin_LIBRARIES} ${PCL_LIBRARIES}
 add_dependencies(map_global_generation ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Install
-install(TARGETS gnss_verifier repub_odom_orientation_zero base_station_send_tf imu_calibration map_global_generation
+install(TARGETS gnss_verifier repub_odom_orientation_zero base_station_send_tf imu_calibration distance_calibration map_global_generation
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
