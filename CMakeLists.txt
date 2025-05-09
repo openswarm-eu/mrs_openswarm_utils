@@ -59,6 +59,8 @@ find_package(catkin REQUIRED COMPONENTS
 #   Message2.msg
 # )
 
+add_subdirectory(./ThirdParty/GeographicLib/)
+
 # Generate services in the 'srv' folder
 add_service_files(
   FILES
@@ -133,6 +135,9 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
+  ${Y_INCLUDE_DIRS}
+  ${LIBXML2_LIBRARY_DIR}
+  ./ThirdParty/GeographicLib/include/
 )
 
 ## Declare a C++ library
@@ -239,7 +244,13 @@ target_link_libraries(distance_calibration ${catkin_LIBRARIES})
 add_executable(tf_relay_node src/tf_relay_node.cpp)
 target_link_libraries(tf_relay_node ${catkin_LIBRARIES})
 
-link_directories(${PCL_LIBRARY_DIRS})
+# link directories
+link_directories(
+        ${PCL_LIBRARY_DIRS}
+        ${LIBXML2_LIBRARY_DIR}
+        ${Y_INCLUDE_DIRS}
+)
+
 add_definitions(${PCL_DEFINITIONS})
 
 add_executable(map_global_generation src/map_global_generation.cpp)
@@ -250,3 +261,7 @@ add_dependencies(map_global_generation ${${PROJECT_NAME}_EXPORTED_TARGETS} ${cat
 install(TARGETS gnss_verifier repub_odom_orientation_zero base_station_send_tf imu_calibration distance_calibration map_global_generation
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
+
+# Gps odometry
+add_executable(gpsOdometry src/simpleGpsOdom.cpp)
+target_link_libraries(gpsOdometry ${catkin_LIBRARIES} ${LIBXML2_LIBRARIES} ${Y_LIBRARIES} libGeographic)

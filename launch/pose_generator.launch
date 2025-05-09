@@ -4,7 +4,7 @@
 	<arg name="path" default="$(optenv PWD)"/>
 
     <group ns="$(arg UAV_NAME)">
-        <node pkg="mrs_ingeniarius_utils" type="pose_generator.py" name="pose_generator" output="screen">
+        <node pkg="mrs_openswarm_utils" type="pose_generator.py" name="pose_generator" output="screen">
             <rosparam file="$(find mrs_ingeniarius_utils)/config/pose_generator.yaml" command="load"/>
             <param name="yaml_file" value="$(find mrs_ingeniarius_utils)/config/target_poses.yaml" />
         </node>

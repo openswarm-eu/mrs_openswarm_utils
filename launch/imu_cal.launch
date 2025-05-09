@@ -7,7 +7,7 @@
     <arg name="UAV_NAME" default="$(optenv UAV_NAME uav1)"/>
 
     <group ns="$(arg UAV_NAME)">
-        <node pkg="mrs_ingeniarius_utils" type="imu_calibration" name="imu_calibration" output="screen" respawn="true">
+        <node pkg="mrs_openswarm_utils" type="imu_calibration" name="imu_calibration" output="screen" respawn="true">
             <param name="subscribed_topic" value="$(arg imu_topic_in)"/>
             <param name="published_topic" value="$(arg imu_topic_out)"/>
             <param name="maxSize" value="$(arg maxSize)"/>

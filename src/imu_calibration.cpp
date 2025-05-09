@@ -1,6 +1,8 @@
 #include <ros/ros.h>
 #include <tf/tf.h>
 #include <sensor_msgs/Imu.h>
+#include <geometry_msgs/QuaternionStamped.h>
+#include <std_msgs/Float32.h>
 #include <ros/console.h>
 #include <iostream>
 
@@ -13,59 +15,87 @@ class IMUCalibration
         IMUCalibration()
         {
             nh_ = ros::NodeHandle("~");
-
-            nh_.param<std::string>("subscribed_topic", subscribed_topic, "hw_api/imu");
-            nh_.param<std::string>("published_topic", published_topic, "imu_out");
             nh_.param<int>("maxSize", maxSize, 1000);
-
-            node_namespace_ = ros::this_node::getNamespace();
-
-            if (!node_namespace_.empty() && node_namespace_ != "/") 
-            {
-                subscribed_topic = node_namespace_ + "/" + subscribed_topic;
-            }   
+            nh_.param<double>("offset", offset, 0.0);
+            nh_.param<bool>("apply_offset", apply_offset, false);
+            nh_.param<bool>("lla_offset", lla_offset, false);
 
             // Subscriber for IMU data
-            imu_sub1_ = nh_.subscribe(subscribed_topic, 1, &IMUCalibration::imuCallback1, this);
+            imu_sub1_ = nh_.subscribe("input_topic", 1, &IMUCalibration::imuCallback1, this);
+
+            // Subscriber for IMU data
+            offset_sub_ = nh_.subscribe("input_topic_offset", 1, &IMUCalibration::offsetCallback, this);
 
             // Publisher to republish the IMU data
-            imu_pub1_ = nh_.advertise<sensor_msgs::Imu>(published_topic, 1000);
+            imu_pub1_ = nh_.advertise<sensor_msgs::Imu>("output_topic_imu", 10);
+
+            // Publisher to republish the IMU data
+            orientation_pub1_ = nh_.advertise<geometry_msgs::QuaternionStamped>("output_topic_orientation", 10);
 
             heading_offset = 0.0;
 
         }
 
+        // Callback function for the offset IMU sensor
+        void offsetCallback(const std_msgs::Float32::ConstPtr& msg)
+        {
+            heading_offset = msg->data;
+            ROS_INFO_ONCE("Offset: %f", heading_offset);
+            received_offset = true;
+        }
+
         // Callback function for the first IMU sensor
-        void imuCallback1(const sensor_msgs::Imu::ConstPtr& msg) 
+        void imuCallback1(const sensor_msgs::Imu::ConstPtr& msg)
         {
             ROS_INFO_ONCE("Callback function for the first IMU sensor.");
             sensor_msgs::Imu imu_data1_ = *msg;
-            
-            if (buffer1_.size() < maxSize)
+            geometry_msgs::QuaternionStamped q_msg;
+
+            if (!lla_offset)
             {
-                ROS_INFO_ONCE("Buffering...");
-                tf::Quaternion RQ2 = {msg->orientation.x,msg->orientation.y,msg->orientation.z,msg->orientation.w};
-                buffer1_.push_back(RQ2);
-                return;
+                if (buffer1_.size() < maxSize)
+                {
+                    ROS_INFO_ONCE("Buffering...");
+                    tf::Quaternion RQ2 = {msg->orientation.x,msg->orientation.y,msg->orientation.z,msg->orientation.w};
+                    buffer1_.push_back(RQ2);
+                    return;
+                }
+
+                static bool initial_heading = false;
+                if (!initial_heading)
+                {
+                    ROS_INFO_ONCE("Calculate the average of the current elements in the buffer.");
+                    initial_heading = true;
+                    heading_offset = calculateAverage(buffer1_);
+                    return;
+                }
+            }
+            else
+            {
+                if (!received_offset)
+                {
+                    ROS_INFO_ONCE("Waiting for the offset.");
+                    return;
+                }
             }
 
-			static bool initial_heading = false;
-			if (!initial_heading)
+            if (apply_offset)
             {
-                ROS_INFO_ONCE("Calculate the average of the current elements in the buffer.");
-			    initial_heading = true;
-                heading_offset = calculateAverage(buffer1_);
+                ROS_INFO_ONCE("Applying the offset.");
                 ROS_INFO_ONCE("Offset: %f", heading_offset);
-				return;
-			}
-
-            ROS_INFO_ONCE("Applying the offset.");
-            double roll, pitch, heading;
-            imuRPY2rosRPY(&imu_data1_, &roll, &pitch, &heading);
-
-            imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading-heading_offset);
+                double roll, pitch, heading;
+                imuRPY2rosRPY(&imu_data1_, &roll, &pitch, &heading);
+                imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading-(1.5707963 - heading_offset));
+            }
+            else
+            {
+                ROS_INFO_ONCE("No offset applied.");
+            }
 
             imu_pub1_.publish(imu_data1_);
+            q_msg.header = imu_data1_.header;
+            q_msg.quaternion = imu_data1_.orientation;
+            orientation_pub1_.publish(q_msg);
         }
 
         // Calculate the average of the current elements in the buffer
@@ -101,14 +131,15 @@ class IMUCalibration
 
     private:
         ros::NodeHandle nh_;
-        std::string node_namespace_;
-        ros::Subscriber imu_sub1_;
-        ros::Publisher imu_pub1_;
+        ros::Subscriber imu_sub1_, offset_sub_;
+        ros::Publisher imu_pub1_, orientation_pub1_;
         std::string subscribed_topic;
         std::string published_topic;
         std::deque<tf::Quaternion> buffer1_;
         int maxSize;
-        double heading_offset;
+        double heading_offset, offset;
+        bool apply_offset, lla_offset;
+        bool received_offset = false;
 };
 
 

@@ -6,7 +6,7 @@
 
 
   <group ns="$(arg UAV_NAME)">
-    <node name="map_global_generation" pkg="mrs_ingeniarius_utils" type="map_global_generation" output="screen">
+    <node name="map_global_generation" pkg="mrs_openswarm_utils" type="map_global_generation" output="screen">
 
       <param name="uav_name" value="$(arg UAV_NAME)" />
 	    <param name="uav_names" type="yaml" value="[uav1, uav2, uav3]"/>

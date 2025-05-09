@@ -1,0 +1,14 @@
+<launch>
+
+    <arg name="drone" default="uav6"/>
+
+    <arg name="UAV_NAME" default="$(optenv UAV_NAME uav1)"/>
+
+    <group ns="$(arg UAV_NAME)">
+        <node pkg="mrs_openswarm_utils" type="convert_gps_enu.py" name="convert_gps_enu" output="screen" respawn="true">
+            <remap from="~drone1" to="hw_api/rtk" />
+            <remap from="~drone2" to="/$(arg drone)/hw_api/rtk" />
+        </node>
+    </group>
+
+</launch>
