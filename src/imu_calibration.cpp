@@ -20,6 +20,7 @@ class IMUCalibration
             nh_.param<bool>("self_offset", self_offset, false);
             nh_.param<bool>("imu_offset", imu_offset, false);
             nh_.param<bool>("lla_offset", lla_offset, false);
+            nh_.param<double>("wit_offset", wit_offset, 0.0);
 
             // Subscriber for IMU data
             imu_sub1_ = nh_.subscribe("input_topic_main", 1, &IMUCalibration::imuCallback1, this);
@@ -111,7 +112,7 @@ class IMUCalibration
                 imuRPY2rosRPY(&imu_data1_, &roll, &pitch, &heading);
                 if (imu_offset)
                 {
-                    imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading_imu);
+                    imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading_imu - wit_offset);
                 }
                 else
                 {
@@ -194,7 +195,7 @@ class IMUCalibration
         std::string published_topic;
         std::deque<tf::Quaternion> buffer1_, buffer2_;
         int maxSize;
-        double heading_imu, heading_offset;
+        double heading_imu, heading_offset, wit_offset;
         bool apply_offset, self_offset, imu_offset, lla_offset;
         bool received_offset = false;
 };
