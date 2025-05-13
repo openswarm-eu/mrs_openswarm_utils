@@ -153,7 +153,7 @@ class Shutdown(smach.State):
 def main():
     rospy.init_node('uav_fsm')
 
-    sm = smach.StateMachine(outcomes=['fsm_complete'])takeoff_commanded
+    sm = smach.StateMachine(outcomes=['fsm_complete'])
 
     with sm:
         smach.StateMachine.add('INIT', Init(), transitions={
