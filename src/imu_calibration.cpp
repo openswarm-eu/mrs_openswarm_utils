@@ -16,15 +16,39 @@ class IMUCalibration
         {
             nh_ = ros::NodeHandle("~");
             nh_.param<int>("maxSize", maxSize, 1000);
-            nh_.param<double>("offset", offset, 0.0);
             nh_.param<bool>("apply_offset", apply_offset, false);
+            nh_.param<bool>("self_offset", self_offset, false);
+            nh_.param<bool>("imu_offset", imu_offset, false);
             nh_.param<bool>("lla_offset", lla_offset, false);
 
             // Subscriber for IMU data
-            imu_sub1_ = nh_.subscribe("input_topic", 1, &IMUCalibration::imuCallback1, this);
+            imu_sub1_ = nh_.subscribe("input_topic_main", 1, &IMUCalibration::imuCallback1, this);
 
-            // Subscriber for IMU data
-            offset_sub_ = nh_.subscribe("input_topic_offset", 1, &IMUCalibration::offsetCallback, this);
+            if (!apply_offset)
+            {
+                self_offset = false;
+                imu_offset = false;
+                lla_offset = false;
+            }
+
+            if (self_offset)
+            {
+                imu_offset = false;
+                lla_offset = false;
+            }
+
+            // Subscriber for WIT IMU data
+            if (imu_offset)
+            {
+                imu_sub2_ = nh_.subscribe("input_topic_ref", 1, &IMUCalibration::imuCallback2, this);
+                lla_offset = false;
+            }
+
+            // Subscriber for LLA data
+            if (lla_offset)
+            {
+                offset_sub_ = nh_.subscribe("input_topic_offset", 1, &IMUCalibration::offsetCallback, this);
+            }
 
             // Publisher to republish the IMU data
             imu_pub1_ = nh_.advertise<sensor_msgs::Imu>("output_topic_imu", 10);
@@ -36,9 +60,10 @@ class IMUCalibration
 
         }
 
-        // Callback function for the offset IMU sensor
+        // Callback function for the offset IMU sensor from LLA
         void offsetCallback(const std_msgs::Float32::ConstPtr& msg)
         {
+            ROS_INFO_ONCE("Callback function for LLA calibration.");
             heading_offset = msg->data;
             ROS_INFO_ONCE("Offset: %f", heading_offset);
             received_offset = true;
@@ -47,12 +72,12 @@ class IMUCalibration
         // Callback function for the first IMU sensor
         void imuCallback1(const sensor_msgs::Imu::ConstPtr& msg)
         {
-            ROS_INFO_ONCE("Callback function for the first IMU sensor.");
             sensor_msgs::Imu imu_data1_ = *msg;
             geometry_msgs::QuaternionStamped q_msg;
 
-            if (!lla_offset)
+            if (self_offset)
             {
+                ROS_INFO_ONCE("Callback function for self calibration.");
                 if (buffer1_.size() < maxSize)
                 {
                     ROS_INFO_ONCE("Buffering...");
@@ -67,25 +92,31 @@ class IMUCalibration
                     ROS_INFO_ONCE("Calculate the average of the current elements in the buffer.");
                     initial_heading = true;
                     heading_offset = calculateAverage(buffer1_);
-                    return;
-                }
-            }
-            else
-            {
-                if (!received_offset)
-                {
-                    ROS_INFO_ONCE("Waiting for the offset.");
+                    ROS_INFO_ONCE("Offset: %f", heading_offset);
+                    received_offset = true;
                     return;
                 }
             }
 
             if (apply_offset)
             {
-                ROS_INFO_ONCE("Applying the offset.");
-                ROS_INFO_ONCE("Offset: %f", heading_offset);
+                if (!received_offset)
+                {
+                    ROS_INFO_ONCE("Waiting for the result.");
+                    return;
+                }
+                
+                ROS_INFO_ONCE("Applying the imu calibrationn.");
                 double roll, pitch, heading;
                 imuRPY2rosRPY(&imu_data1_, &roll, &pitch, &heading);
-                imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading-(1.5707963 - heading_offset));
+                if (imu_offset)
+                {
+                    imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading_imu);
+                }
+                else
+                {
+                    imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading - heading_offset);
+                }
             }
             else
             {
@@ -96,6 +127,32 @@ class IMUCalibration
             q_msg.header = imu_data1_.header;
             q_msg.quaternion = imu_data1_.orientation;
             orientation_pub1_.publish(q_msg);
+        }
+
+        // Callback function for the WIT sensor
+        void imuCallback2(const sensor_msgs::Imu::ConstPtr& msg) 
+        {
+            ROS_INFO_ONCE("Callback function for the WIT IMU sensor.");
+            sensor_msgs::Imu imu_data1_ = *msg;
+
+            if (buffer2_.size() < maxSize)
+            {
+                ROS_INFO_ONCE("Buffering...");
+                tf::Quaternion RQ2 = {msg->orientation.x,msg->orientation.y,msg->orientation.z,msg->orientation.w};
+                buffer2_.push_back(RQ2);
+                return;
+            }
+
+            static bool initial_heading = false;
+            if (!initial_heading)
+            {
+                initial_heading = true;
+                ROS_INFO_ONCE("Calculate the average of the current elements in the buffer.");
+                heading_imu = calculateAverage(buffer2_);
+                ROS_INFO_ONCE("Offset from WIT: %f", heading_imu);
+                received_offset = true;
+                return;
+            }
         }
 
         // Calculate the average of the current elements in the buffer
@@ -131,14 +188,14 @@ class IMUCalibration
 
     private:
         ros::NodeHandle nh_;
-        ros::Subscriber imu_sub1_, offset_sub_;
+        ros::Subscriber imu_sub1_, imu_sub2_, offset_sub_;
         ros::Publisher imu_pub1_, orientation_pub1_;
         std::string subscribed_topic;
         std::string published_topic;
-        std::deque<tf::Quaternion> buffer1_;
+        std::deque<tf::Quaternion> buffer1_, buffer2_;
         int maxSize;
-        double heading_offset, offset;
-        bool apply_offset, lla_offset;
+        double heading_imu, heading_offset;
+        bool apply_offset, self_offset, imu_offset, lla_offset;
         bool received_offset = false;
 };
 
