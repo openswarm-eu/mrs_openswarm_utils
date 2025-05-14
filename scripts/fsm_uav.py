@@ -50,7 +50,7 @@ class SystemCheck(smach.State):
 
         rospy.Subscriber('mrs_uav_status/uav_status', UavStatus, self.uav_status_callback)
         rospy.Subscriber('lslidar/pcl_filtered', PointCloud2, self.lidar_3d_callback)
-        self.sensor_pub = rospy.Publisher('sensor_check', Bool, queue_size=10)
+        self.sensor_pub = rospy.Publisher('fms/sensor_check', Bool, queue_size=10)
         timeout = rospy.Time.now() + rospy.Duration(20)
 
         rospy.loginfo("System check: Waiting for GNSS data...")
@@ -92,7 +92,7 @@ class SwarmCheck(smach.State):
     def execute(self, userdata):
         rospy.loginfo("SwarmCheck: Waiting for all drone statuses...")
         self.drone_status = {name: False for name in self.drone_list}
-        self.swarm_pub = rospy.Publisher('swarm_check', Bool, queue_size=10)
+        self.swarm_pub = rospy.Publisher('fms/swarm_check', Bool, queue_size=10)
 
         # Dynamically subscribe to each drone's status
         self.subscribers = []
