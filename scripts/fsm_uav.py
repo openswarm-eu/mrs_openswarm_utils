@@ -26,8 +26,11 @@ class Init(smach.State):
         rospy.loginfo("State: INIT - Initializing drone systems.")
         self.swarm_init_received = False
 
+        # Get computer name list from parameter server
+        self.computer_name = rospy.get_param("~computer_name", "computer1")
+
         # Subscribe to base's trigger
-        rospy.Subscriber('fms/init', Bool, self.swarm_init_cb)
+        rospy.Subscriber('/' + self.computer_name + '/fms/init', Bool, self.swarm_init_cb)
 
         # Send heartbeat every 1 second
         heartbeat_rate = rospy.Rate(1)
