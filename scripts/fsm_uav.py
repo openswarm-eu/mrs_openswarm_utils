@@ -7,18 +7,42 @@ import smach_ros
 from smach import Concurrence
 from sensor_msgs.msg import PointCloud2
 from mrs_msgs.msg import UavStatus, UavManagerDiagnostics
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 # --- Define FSM States ---
 
 class Init(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['initialized', 'failed'])
+        self.init_pub = rospy.Publisher('fms/drone_status', String, queue_size=10)
+        self.swarm_init_received = False
+
+    def swarm_init_cb(self, msg):
+        if msg.data:
+            rospy.loginfo("State: INIT - Received swarm init trigger.")
+            self.swarm_init_received = True
 
     def execute(self, userdata):
         rospy.loginfo("State: INIT - Initializing drone systems.")
-        # Add init logic here
-        rospy.sleep(1)
+        self.swarm_init_received = False
+
+        # Subscribe to base's trigger
+        rospy.Subscriber('fms/init', Bool, self.swarm_init_cb)
+
+        # Send heartbeat every 1 second
+        heartbeat_rate = rospy.Rate(1)
+        timeout = rospy.Time.now() + rospy.Duration(20.0)  # Optional timeout
+
+        while not rospy.is_shutdown() and not self.swarm_init_received:
+            self.init_pub.publish(String('INIT'))
+            rospy.loginfo_throttle(5, "State: INIT - Sending INIT heartbeat to base.")
+
+            if rospy.Time.now() > timeout:
+                rospy.logwarn("State: INIT - Timeout waiting for swarm init.")
+                return 'failed'
+
+            heartbeat_rate.sleep()
+
         return 'initialized'
 
 
@@ -282,7 +306,7 @@ def main():
     with sm:
         smach.StateMachine.add('INIT', Init(), transitions={
             'initialized': 'SYSTEM_CHECK',
-            'failed': 'ABORT'
+            'failed': 'INIT'
         })
 
         smach.StateMachine.add('SYSTEM_CHECK', SystemCheck(), transitions={
