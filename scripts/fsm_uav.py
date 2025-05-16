@@ -314,7 +314,7 @@ def main():
 
         smach.StateMachine.add('SYSTEM_CHECK', SystemCheck(), transitions={
             'passed': 'SWARM_CHECK',
-            'failed': 'INIT'
+            'failed': 'SYSTEM_CHECK'
         })
 
         smach.StateMachine.add('SWARM_CHECK', SwarmCheck(), transitions={
