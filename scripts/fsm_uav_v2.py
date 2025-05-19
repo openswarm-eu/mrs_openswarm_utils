@@ -6,10 +6,17 @@ import smach
 import smach_ros
 from smach import Concurrence
 from sensor_msgs.msg import PointCloud2
-from mrs_msgs.msg import UavStatus, UavManagerDiagnostics, HwApiRcChannels
+from mrs_msgs.msg import UavStatus, UavManagerDiagnostics, HwApiRcChannels, ControlManagerDiagnostics
 from std_msgs.msg import Bool, String, UInt8MultiArray
+from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Odometry
+from std_srvs.srv import Trigger, TriggerRequest
+from mrs_msgs.srv import Vec4, Vec4Request
 import tf2_ros
+import tf2_geometry_msgs
 import utm
+import numpy as np
+import math
 
 # --- Define FSM States ---
 
@@ -89,7 +96,7 @@ class Init(smach.State):
         self.swarm_init_received = False
 
         # Publisher of status 
-        self.pub = rospy.Publisher('fms//drone_status_report', UInt8MultiArray, queue_size=10)
+        self.pub = rospy.Publisher('fms/drone_status_report', UInt8MultiArray, queue_size=10)
 
         # Subscribe to base's trigger
         rospy.Subscriber('/' + self.computer_name + '/fms/init', Bool, self.swarm_init_cb)
@@ -148,13 +155,29 @@ class CommLeader(smach.State):
         self.drone_list = rospy.get_param('~uav_names', [])
         self.uav_name = rospy.get_param("~uav_name", "uav1")
         self.height_formation = rospy.get_param("~height_formation", 3.0)
+        self.tolerance_distance = rospy.get_param("~tolerance_distance", 0.5)
+        self.latitude_start = 41.2209807
+        self.longitude_start = -8.5272058
+        self.latitude_end = 41.2211611
+        self.longitude_end = -8.5272058
         self.drone_flying = {name: False for name in self.drone_list}
         self.takeoff_execution = False
+
+        # Wait for TFs
+        self.tf_buffer = tf2_ros.Buffer()
+        self.listener = tf2_ros.TransformListener(self.tf_buffer)
+        rospy.loginfo("[LEADER]: Waiting for TF to fill buffer...")
+        rospy.sleep(2.0) 
 
     def make_callback(self, name):
         def callback(msg):
             if msg.uav_name in self.drone_list:
                 self.drone_flying[name] = msg.flying_normally
+        return callback
+
+    def make_callback_odom(self, name):
+        def callback(msg):
+            self.odom = msg
         return callback
 
     def init_service_proxies(self):
@@ -170,14 +193,26 @@ class CommLeader(smach.State):
             rospy.loginfo(f"[LEADER]: Waiting for goto service: {service_name}")
             rospy.wait_for_service(service_name)
             self.uav_goto_services[name] = rospy.ServiceProxy(service_name, Vec4)
+        # GoTo_fcu Services
+        for name in self.drone_list:
+            service_name = f'/{name}/control_manager/goto_fcu'
+            rospy.loginfo(f"[LEADER]: Waiting for goto service: {service_name}")
+            rospy.wait_for_service(service_name)
+            self.uav_goto_fcu_services[name] = rospy.ServiceProxy(service_name, Vec4)
 
     def convert_utm_local(self, latitude, longitude, altitude, frame_id, target_frame):
         # Convert to UTM
         x, y, z = self.latlon_to_utm(latitude, longitude, altitude)
         
         # Create pose in utm_origin
-        pose_in_utm_origin = self.create_pose_stamped(x, y, z, frame_id)
-        
+        pose_in_utm_origin = PoseStamped()
+        pose_in_utm_origin.header.stamp = rospy.Time.now()
+        pose_in_utm_origin.header.frame_id = frame_id
+        pose_in_utm_origin.pose.position.x = x
+        pose_in_utm_origin.pose.position.y = y
+        pose_in_utm_origin.pose.position.z = z
+        pose_in_utm_origin.pose.orientation.w = 1.0  # Assuming no rotation
+
         return self.transform_pose(pose_in_utm_origin, target_frame)
 
     def latlon_to_utm(self, lat, lon, alt=0.0):
@@ -185,35 +220,93 @@ class CommLeader(smach.State):
         u = utm.from_latlon(lat, lon)
         return u[0], u[1], alt  # x, y, z
 
-    def create_pose_stamped(self, x, y, z, frame_id="utm_origin"):
-        pose = PoseStamped()
-        pose.header.stamp = rospy.Time.now()
-        pose.header.frame_id = frame_id
-        pose.pose.position.x = x
-        pose.pose.position.y = y
-        pose.pose.position.z = z
-        pose.pose.orientation.w = 1.0  # no rotation
-        return pose
+    def transform_pose(self, pose_stamped, target_frame, timeout_sec=1.0):
 
-    def transform_pose(self, pose, target_frame):
+        if not isinstance(pose_stamped, PoseStamped):
+            raise TypeError("Expected PoseStamped, got: {}".format(type(pose_stamped)))
+
+        tf_buffer = tf2_ros.Buffer()
+        listener = tf2_ros.TransformListener(tf_buffer)
+
         try:
-            # Wait until the transform becomes available
-            self.tf_buffer.can_transform(
-                target_frame, 
-                pose.header.frame_id, 
-                rospy.Time(0), 
-                rospy.Duration(5.0)
+            # Wait until the transform is available or timeout occurs
+            rospy.logdebug("Waiting for transform from %s to %s...", pose_stamped.header.frame_id, target_frame)
+            tf_buffer.can_transform(target_frame, pose_stamped.header.frame_id, rospy.Time(0), rospy.Duration(timeout_sec))
+            transform = tf_buffer.lookup_transform(
+                target_frame,
+                pose_stamped.header.frame_id,
+                rospy.Time(0),
+                rospy.Duration(timeout_sec)
             )
-            transformed_pose = self.tf_buffer.transform(
-                pose, target_frame, rospy.Duration(1.0)
-            )
+
+            # Transform the pose
+            transformed_pose = tf2_geometry_msgs.do_transform_pose(pose_stamped, transform)
             return transformed_pose
+
         except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
-            rospy.logerr(f"TF transform failed: {e}")
+            rospy.logerr("Transform failed: %s", e)
+            raise e
             return None
 
+    def takeoff_service(self, uav):
+        request = TriggerRequest()
+        try:
+            rospy.loginfo(f"[{uav}] Sending goal: {request}")
+            response = self.uav_takeoff_services[uav](request)
+            rospy.loginfo(f"[{uav}] Response: success={response.success}, message='{response.message}'")
+        except rospy.ServiceException as e:
+            rospy.logerr(f"[{uav}] Service call failed: {e}")
+
+        return response.success
+
+    def goto_service(self, uav, x, y, z, heading=0.0):
+        request = Vec4Request()
+        request.goal = [x, y, z, heading]
+        try:
+            rospy.loginfo(f"[{uav}] Sending goal: {request.goal}")
+            response = self.uav_goto_services[uav](request)
+            rospy.loginfo(f"[{uav}] Response: success={response.success}, message='{response.message}'")
+        except rospy.ServiceException as e:
+            rospy.logerr(f"[{uav}] Service call failed: {e}")
+
+    def goto_fcu_service(self, uav, x, y, z, heading=0.0):
+        request = Vec4Request()
+        request.goal = [x, y, z, heading]
+        try:
+            rospy.loginfo(f"[{uav}] Sending goal: {request.goal}")
+            response = self.uav_goto_fcu_services[uav](request)
+            rospy.loginfo(f"[{uav}] Response: success={response.success}, message='{response.message}'")
+        except rospy.ServiceException as e:
+            rospy.logerr(f"[{uav}] Service call failed: {e}")
+
+    def euclidean_distance(self, pose_stamped: PoseStamped, odom: Odometry, use_3d: bool = False) -> float:
+        # Extract target pose
+        target_x = pose_stamped.pose.position.x
+        target_y = pose_stamped.pose.position.y
+        target_z = pose_stamped.pose.position.z
+
+        # Extract current odometry pose
+        current_x = odom.pose.pose.position.x
+        current_y = odom.pose.pose.position.y
+        current_z = odom.pose.pose.position.z
+
+        # Compute 2D or 3D distance
+        if use_3d:
+            distance = math.sqrt(
+                (target_x - current_x) ** 2 +
+                (target_y - current_y) ** 2 +
+                (target_z - current_z) ** 2
+            )
+        else:
+            distance = math.sqrt(
+                (target_x - current_x) ** 2 +
+                (target_y - current_y) ** 2
+            )
+
+        return distance
+
     def execute(self, userdata):
-        if self.uav_name == self.drone_list[0]:
+        if self.drone_list[0] == self.uav_name:
             rospy.logwarn("[LEADER]: I am the leader.")
 
             # Choose the type of format for the takeoff command
@@ -237,30 +330,37 @@ class CommLeader(smach.State):
                 sub = rospy.Subscriber(topic, ControlManagerDiagnostics, self.make_callback(name))
                 self.subscribers.append(sub)
 
+            # Dynamically subscribe to each drone's odometry
+            self.subscribers_odom = []
+            for name in self.drone_list:
+                # rospy.loginfo(f"UAV: : {name}")
+                topic = f"/{name}/estimation_manager/odom_main"
+                sub_odom = rospy.Subscriber(topic, Odometry, self.make_callback_odom(name))
+                self.subscribers_odom.append(sub_odom)
+
             # Initialize goto service proxies
             self.uav_takeoff_services = {}
             self.uav_goto_services = {}
+            self.uav_goto_fcu_services = {}
             self.init_service_proxies()
             rospy.loginfo("[LEADER]: All UAV services connected.")
-
-            # Wait for TFs
-            self.tf_buffer = tf2_ros.Buffer()
-            self.listener = tf2_ros.TransformListener(self.tf_buffer)
-            rospy.loginfo("[LEADER]: Waiting for TF to fill buffer...")
-            rospy.sleep(1.0) 
 
             # Calculation of Pose Start and Pose End
             pose_start = self.convert_utm_local(latitude = self.latitude_start,
                                                 longitude = self.longitude_start,
                                                 altitude = 0.0,
-                                                frame_id = self.uav_name + "/utm_origin",
-                                                target_frame = "common_origin")
+                                                frame_id = self.drone_list[0] + "/utm_origin",
+                                                target_frame = self.drone_list[0] + "/liosam_origin")
 
             pose_end = self.convert_utm_local(latitude = self.latitude_end,
                                                 longitude = self.longitude_end,
                                                 altitude = 0.0,
-                                                frame_id = self.uav_name + "/utm_origin",
-                                                target_frame = "common_origin")
+                                                frame_id = self.drone_list[0] + "/utm_origin",
+                                                target_frame = self.drone_list[0] + "/liosam_origin")
+
+            if pose_start == None or pose_end == None:
+                rospy.loginfo(f"Problems with poses")
+                return 'failed'
 
             # Take-off
             if len(self.drone_list) == 1:
@@ -279,11 +379,26 @@ class CommLeader(smach.State):
                     rospy.loginfo(f"[LEADER]: {self.drone_list[0]}: not flying")
                     return 'failed'
 
+                distance = self.euclidean_distance(pose_start, self.odom)
+                # rospy.logwarn(f"[{self.drone_list[0]}] Pose start: {pose_start}")
+                rospy.logwarn(f"[{self.drone_list[0]}] Distance to target: {distance}")
+
                 if not self.goto_service(self.drone_list[0],
                                         pose_start.pose.position.x,
                                         pose_start.pose.position.y,
                                         self.height_formation):
                     return 'failed'
+
+                while True:
+                    distance = self.euclidean_distance(pose_start, self.odom)
+                    rospy.logwarn_throttle(60, f"[{uav}] Distance to target: {distance}")
+                    if self.euclidean_distance(pose_start, self.odom) < self.tolerance_distance:
+                        if not self.goto_fcu_service(self.drone_list[0],
+                                        0.0,
+                                        0.0,
+                                        0.0):
+                            return 'failed'
+                        break
 
             return 'initialized'
         else:
@@ -381,4 +496,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-build_concurrent_check
