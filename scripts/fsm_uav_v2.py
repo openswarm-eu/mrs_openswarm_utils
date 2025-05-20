@@ -17,6 +17,7 @@ import tf2_geometry_msgs
 import utm
 import numpy as np
 import math
+import time
 
 # --- Define FSM States ---
 
@@ -34,18 +35,31 @@ class Init(smach.State):
     # Subscribe to GNSS
     def uav_status_callback(self, msg):
         if msg.hw_api_gnss_ok == True:
-            if not self.logged_hw_api_gnss:
-                self.hw_api_gnss_ok = True
-                rospy.loginfo("[INIT]: GNSS data received.")
-                self.logged_hw_api_gnss = True
+            self.hw_api_gnss_ok = True
+            rospy.loginfo_throttle(10, "GPS is publishing normally.")
+        else:
+            self.hw_api_gnss_ok = False
+            rospy.loginfo_throttle(10, "GPS not received yet.")
 
     # Subscribe to 3D Lidar
     def lidar_3d_callback(self, msg):
-        if msg.width > 0 and msg.height > 0:
-            if not self.logged_lidar_3d:
-                self.lidar_3d_ok = True
-                rospy.loginfo("[INIT]: 3D LiDAR data received.")
-                self.logged_lidar_3d = True
+        self.last_msg_time = time.time()
+        if not self.lidar_active:
+            rospy.loginfo("LiDAR is now active.")
+        self.lidar_active = True
+
+    def check_lidar_status(self, event):
+        if self.last_msg_time is None:
+            rospy.logwarn_throttle(5, "LiDAR not received yet.")
+            return
+
+        time_since_last = time.time() - self.last_msg_time
+        if time_since_last > self.timeout:
+            if self.lidar_active:
+                rospy.logwarn(f"LiDAR stopped publishing ({time_since_last:.1f}s since last message)")
+            self.lidar_active = False
+        else:
+            rospy.loginfo_throttle(10, "LiDAR is publishing normally.")
 
     # Subscribe to communication
     def make_callback(self, name):
@@ -65,19 +79,28 @@ class Init(smach.State):
 
     # Subscribe to radio controller
     def rc_callback(self, msg):
-        if msg.channels[4] == 0.0:
+        if msg.channels[8] < 0.5:
+            self.rc_motor_off = False
+        else:
+            self.rc_motor_off = True
+
+        if self.rc_motor_off == False:
+            if msg.channels[4] < 0.5:
+                self.rc_arm = False
+            else:
+                self.rc_arm = True
+            if msg.channels[10] < 0.5:
+                self.rc_offboard = False
+            else:
+                self.rc_offboard = True
+        else:
             self.rc_arm = False
-        else:
-            self.rc_arm = True
-        if msg.channels[10] == 0.0:
             self.rc_offboard = False
-        else:
-            self.rc_offboard = True
 
     # Subscriber to computer
     def swarm_init_cb(self, msg):
         if msg.data:
-            rospy.loginfo("[INIT]: Received swarm init trigger.")
+            rospy.loginfo("[INIT]: Received ckeck trigger.")
             self.swarm_init_received = True
 
     def execute(self, userdata):
@@ -85,18 +108,22 @@ class Init(smach.State):
 
         # Flags
         self.hw_api_gnss_ok = False
-        self.logged_hw_api_gnss = False
-        self.lidar_3d_ok = False
-        self.logged_lidar_3d = False
         self.swarm_communication = False
         self.logged_can_take = False
         self.can_take_ok = False
+        self.rc_motor_off = False
         self.rc_arm = False
         self.rc_offboard = False
         self.swarm_init_received = False
 
+        self.timeout = 2.0
+        self.last_msg_time = None
+        self.lidar_active = False
+
+        rospy.Timer(rospy.Duration(1.0), self.check_lidar_status)
+
         # Publisher of status 
-        self.pub = rospy.Publisher('fms/drone_status_report', UInt8MultiArray, queue_size=10)
+        self.pub = rospy.Publisher('fms/drone_status', UInt8MultiArray, queue_size=10)
 
         # Subscribe to base's trigger
         rospy.Subscriber('/' + self.computer_name + '/fms/init', Bool, self.swarm_init_cb)
@@ -124,9 +151,9 @@ class Init(smach.State):
 
         while not rospy.is_shutdown() and not self.swarm_init_received:
             rospy.loginfo_throttle(5, "[INIT]: Sending INIT heartbeat to base.")
-            rospy.logwarn("[INIT]: gnss=%s, lidar_3d=%s, swarm=%s, pre-flight=%s, armed=%s, offboard:%s",
-                        self.hw_api_gnss_ok, self.lidar_3d_ok, self.swarm_communication, 
-                        self.can_take_ok, self.rc_arm, self.rc_offboard)
+            rospy.logwarn("[INIT]: gnss=%s, lidar_3d=%s, swarm=%s, pre-flight=%s, motor_off=%s, armed=%s, offboard:%s",
+                        self.hw_api_gnss_ok, self.lidar_active, self.swarm_communication, 
+                        self.can_take_ok, self.rc_motor_off, self.rc_arm, self.rc_offboard)
 
             if all(self.drone_status.values()):
                 self.swarm_communication = True
@@ -135,7 +162,7 @@ class Init(smach.State):
             # 1 for True, 0 for False
             status.data = [
                 int(self.hw_api_gnss_ok),
-                int(self.lidar_3d_ok),
+                int(self.lidar_active),
                 int(self.swarm_communication),
                 int(self.can_take_ok),
                 int(self.rc_arm),
@@ -148,105 +175,51 @@ class Init(smach.State):
 
         return 'initialized'
 
-
-class CommLeader(smach.State):
+class SwarmInit(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes=['initialized', 'failed'])
+        smach.State.__init__(self, outcomes=['finished','aborted'])
         self.drone_list = rospy.get_param('~uav_names', [])
         self.uav_name = rospy.get_param("~uav_name", "uav1")
+        self.computer_name = rospy.get_param("~computer_name", "computer1")
+        self.takeoff_timeout = rospy.get_param("~takeoff_timeout", 30.0)
         self.height_formation = rospy.get_param("~height_formation", 3.0)
         self.tolerance_distance = rospy.get_param("~tolerance_distance", 0.5)
-        self.latitude_start = 41.2209807
-        self.longitude_start = -8.5272058
-        self.latitude_end = 41.2211611
-        self.longitude_end = -8.5272058
-        self.drone_flying = {name: False for name in self.drone_list}
-        self.takeoff_execution = False
+        self.swarm_init = False
+        self.drone_flying = False
 
-        # Wait for TFs
-        self.tf_buffer = tf2_ros.Buffer()
-        self.listener = tf2_ros.TransformListener(self.tf_buffer)
-        rospy.loginfo("[LEADER]: Waiting for TF to fill buffer...")
-        rospy.sleep(2.0) 
+    def swarm_init_callback(self, msg):
+        frame_id = msg.header.frame_id
+        drone = frame_id.split('/')[0]
+        if drone == self.uav_name:
+            rospy.logwarn("[SWARM_INIT]: Swarm init trigger received!")
+            self.pose_start = msg
+            self.swarm_init = True
 
-    def make_callback(self, name):
-        def callback(msg):
-            if msg.uav_name in self.drone_list:
-                self.drone_flying[name] = msg.flying_normally
-        return callback
+    def drone_flying_callback(self, msg):
+        self.drone_flying = msg.flying_normally
 
-    def make_callback_odom(self, name):
-        def callback(msg):
-            self.odom = msg
-        return callback
+    def odom_callback(self, msg):
+        self.odom = msg
 
     def init_service_proxies(self):
         # TakeOff Services
         for name in self.drone_list:
             service_name = f'/{name}/uav_manager/takeoff'
-            rospy.loginfo(f"[LEADER]: Waiting for take-off service: {service_name}")
+            rospy.loginfo(f"[SWARM_INIT]: Waiting for take-off service: {service_name}")
             rospy.wait_for_service(service_name)
             self.uav_takeoff_services[name] = rospy.ServiceProxy(service_name, Trigger)
         # GoTo Services
         for name in self.drone_list:
             service_name = f'/{name}/control_manager/goto'
-            rospy.loginfo(f"[LEADER]: Waiting for goto service: {service_name}")
+            rospy.loginfo(f"[SWARM_INIT]: Waiting for goto service: {service_name}")
             rospy.wait_for_service(service_name)
             self.uav_goto_services[name] = rospy.ServiceProxy(service_name, Vec4)
         # GoTo_fcu Services
         for name in self.drone_list:
             service_name = f'/{name}/control_manager/goto_fcu'
-            rospy.loginfo(f"[LEADER]: Waiting for goto service: {service_name}")
+            rospy.loginfo(f"[SWARM_INIT]: Waiting for goto service: {service_name}")
             rospy.wait_for_service(service_name)
             self.uav_goto_fcu_services[name] = rospy.ServiceProxy(service_name, Vec4)
-
-    def convert_utm_local(self, latitude, longitude, altitude, frame_id, target_frame):
-        # Convert to UTM
-        x, y, z = self.latlon_to_utm(latitude, longitude, altitude)
-        
-        # Create pose in utm_origin
-        pose_in_utm_origin = PoseStamped()
-        pose_in_utm_origin.header.stamp = rospy.Time.now()
-        pose_in_utm_origin.header.frame_id = frame_id
-        pose_in_utm_origin.pose.position.x = x
-        pose_in_utm_origin.pose.position.y = y
-        pose_in_utm_origin.pose.position.z = z
-        pose_in_utm_origin.pose.orientation.w = 1.0  # Assuming no rotation
-
-        return self.transform_pose(pose_in_utm_origin, target_frame)
-
-    def latlon_to_utm(self, lat, lon, alt=0.0):
-        # Convert latitude and longitude to UTM coordinates.
-        u = utm.from_latlon(lat, lon)
-        return u[0], u[1], alt  # x, y, z
-
-    def transform_pose(self, pose_stamped, target_frame, timeout_sec=1.0):
-
-        if not isinstance(pose_stamped, PoseStamped):
-            raise TypeError("Expected PoseStamped, got: {}".format(type(pose_stamped)))
-
-        tf_buffer = tf2_ros.Buffer()
-        listener = tf2_ros.TransformListener(tf_buffer)
-
-        try:
-            # Wait until the transform is available or timeout occurs
-            rospy.logdebug("Waiting for transform from %s to %s...", pose_stamped.header.frame_id, target_frame)
-            tf_buffer.can_transform(target_frame, pose_stamped.header.frame_id, rospy.Time(0), rospy.Duration(timeout_sec))
-            transform = tf_buffer.lookup_transform(
-                target_frame,
-                pose_stamped.header.frame_id,
-                rospy.Time(0),
-                rospy.Duration(timeout_sec)
-            )
-
-            # Transform the pose
-            transformed_pose = tf2_geometry_msgs.do_transform_pose(pose_stamped, transform)
-            return transformed_pose
-
-        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
-            rospy.logerr("Transform failed: %s", e)
-            raise e
-            return None
 
     def takeoff_service(self, uav):
         request = TriggerRequest()
@@ -256,7 +229,6 @@ class CommLeader(smach.State):
             rospy.loginfo(f"[{uav}] Response: success={response.success}, message='{response.message}'")
         except rospy.ServiceException as e:
             rospy.logerr(f"[{uav}] Service call failed: {e}")
-
         return response.success
 
     def goto_service(self, uav, x, y, z, heading=0.0):
@@ -268,6 +240,7 @@ class CommLeader(smach.State):
             rospy.loginfo(f"[{uav}] Response: success={response.success}, message='{response.message}'")
         except rospy.ServiceException as e:
             rospy.logerr(f"[{uav}] Service call failed: {e}")
+        return response.success
 
     def goto_fcu_service(self, uav, x, y, z, heading=0.0):
         request = Vec4Request()
@@ -278,6 +251,7 @@ class CommLeader(smach.State):
             rospy.loginfo(f"[{uav}] Response: success={response.success}, message='{response.message}'")
         except rospy.ServiceException as e:
             rospy.logerr(f"[{uav}] Service call failed: {e}")
+        return response.success
 
     def euclidean_distance(self, pose_stamped: PoseStamped, odom: Odometry, use_3d: bool = False) -> float:
         # Extract target pose
@@ -306,134 +280,87 @@ class CommLeader(smach.State):
         return distance
 
     def execute(self, userdata):
-        if self.drone_list[0] == self.uav_name:
-            rospy.logwarn("[LEADER]: I am the leader.")
+        rospy.loginfo("[SWARM_INIT]: Executing base communication task.")
+        self.swarm_init = False
 
-            # Choose the type of format for the takeoff command
-            if len(self.drone_list) == 1:
-                rospy.loginfo("[LEADER]: Alone")
-            elif len(self.drone_list) == 3:
-                rospy.loginfo("[LEADER]: Leader + two drones in an equilateral triangle.")
-            elif len(self.drone_list) == 6:
-                rospy.loginfo("[LEADER]: Leader + five drones in a pentagon.")
-            elif len(self.drone_list) == 9:
-                rospy.loginfo("[LEADER]: Leader + 8 drones in an octagon.")
-            else:
-                rospy.loginfo("Unknown formation.") 
-                return 'failed'
+        # Subscribe from base computer
+        rospy.Subscriber('/' + self.computer_name + '/fms/swarm_check', PoseStamped, self.swarm_init_callback)
 
-            # Dynamically subscribe to each drone's status
-            self.subscribers = []
-            for name in self.drone_list:
-                # rospy.loginfo(f"UAV: : {name}")
-                topic = f"/{name}/control_manager/diagnostics"
-                sub = rospy.Subscriber(topic, ControlManagerDiagnostics, self.make_callback(name))
-                self.subscribers.append(sub)
+        # Subscribe diagnostics 
+        rospy.Subscriber("control_manager/diagnostics", ControlManagerDiagnostics, self.drone_flying_callback)
 
-            # Dynamically subscribe to each drone's odometry
-            self.subscribers_odom = []
-            for name in self.drone_list:
-                # rospy.loginfo(f"UAV: : {name}")
-                topic = f"/{name}/estimation_manager/odom_main"
-                sub_odom = rospy.Subscriber(topic, Odometry, self.make_callback_odom(name))
-                self.subscribers_odom.append(sub_odom)
+        # Subscribe odometry
+        rospy.Subscriber("estimation_manager/odom_main", Odometry, self.odom_callback)
 
-            # Initialize goto service proxies
-            self.uav_takeoff_services = {}
-            self.uav_goto_services = {}
-            self.uav_goto_fcu_services = {}
-            self.init_service_proxies()
-            rospy.loginfo("[LEADER]: All UAV services connected.")
+        # Initialize goto service proxies
+        self.uav_takeoff_services = {}
+        self.uav_goto_services = {}
+        self.uav_goto_fcu_services = {}
+        self.init_service_proxies()
 
-            # Calculation of Pose Start and Pose End
-            pose_start = self.convert_utm_local(latitude = self.latitude_start,
-                                                longitude = self.longitude_start,
-                                                altitude = 0.0,
-                                                frame_id = self.drone_list[0] + "/utm_origin",
-                                                target_frame = self.drone_list[0] + "/liosam_origin")
+        while not self.swarm_init:
+            rospy.logwarn_throttle(5, f"[SWARM_INIT]: Waiting base computer command.")
 
-            pose_end = self.convert_utm_local(latitude = self.latitude_end,
-                                                longitude = self.longitude_end,
-                                                altitude = 0.0,
-                                                frame_id = self.drone_list[0] + "/utm_origin",
-                                                target_frame = self.drone_list[0] + "/liosam_origin")
+        # Initialize take-off
+        rospy.loginfo(f"[SWARM_INIT]: {self.uav_name} initializes take-off.")
 
-            if pose_start == None or pose_end == None:
-                rospy.loginfo(f"Problems with poses")
-                return 'failed'
+        if not self.takeoff_service(self.uav_name):
+            return 'aborted'
 
-            # Take-off
-            if len(self.drone_list) == 1:
-                rospy.loginfo("[LEADER]: Alone.")
+        timeout = rospy.Time.now() + rospy.Duration(self.takeoff_timeout)
+        while rospy.Time.now() < timeout:
+            if self.drone_flying:
+                rospy.loginfo(f"[SWARM_INIT]: {self.uav_name} is flying.")
+                break
+            rospy.sleep(0.2)
 
-                if not self.takeoff_service(self.drone_list[0]):
-                    return 'failed'
+        if self.drone_flying == False:
+            rospy.loginfo(f"[SWARM_INIT]: {self.uav_name} is not flying")
+            return 'aborted'
 
-                timeout = rospy.Time.now() + rospy.Duration(20)
-                while rospy.Time.now() < timeout:
-                    if self.drone_flying[self.drone_list[0]]:
-                        rospy.loginfo(f"[LEADER]: {self.drone_list[0]} is flying.")
-                        break
-                    rospy.sleep(0.2)
-                if self.drone_flying[self.drone_list[0]] == False:
-                    rospy.loginfo(f"[LEADER]: {self.drone_list[0]}: not flying")
-                    return 'failed'
+        distance = self.euclidean_distance(self.pose_start, self.odom)
+        rospy.logwarn(f"[SWARM_INIT]: Pose start: {self.pose_start}")
+        rospy.logwarn(f"[SWARM_INIT]: Distance to target: {distance}")
 
-                distance = self.euclidean_distance(pose_start, self.odom)
-                # rospy.logwarn(f"[{self.drone_list[0]}] Pose start: {pose_start}")
-                rospy.logwarn(f"[{self.drone_list[0]}] Distance to target: {distance}")
+        if not self.goto_service(self.uav_name,
+                                self.pose_start.pose.position.x,
+                                self.pose_start.pose.position.y,
+                                self.height_formation):
+            return 'aborted'
 
-                if not self.goto_service(self.drone_list[0],
-                                        pose_start.pose.position.x,
-                                        pose_start.pose.position.y,
-                                        self.height_formation):
-                    return 'failed'
+        while True:
+            distance = self.euclidean_distance(self.pose_start, self.odom)
+            rospy.logwarn_throttle(5, f"[SWARM_INIT]: Distance to target: {distance}")
+            if self.euclidean_distance(self.pose_start, self.odom) < self.tolerance_distance:
+                if not self.goto_fcu_service(self.uav_name, 0.0, 0.0, 0.0):
+                    return 'aborted'
+                break
 
-                while True:
-                    distance = self.euclidean_distance(pose_start, self.odom)
-                    rospy.logwarn_throttle(60, f"[{uav}] Distance to target: {distance}")
-                    if self.euclidean_distance(pose_start, self.odom) < self.tolerance_distance:
-                        if not self.goto_fcu_service(self.drone_list[0],
-                                        0.0,
-                                        0.0,
-                                        0.0):
-                            return 'failed'
-                        break
-
-            return 'initialized'
-        else:
-            rospy.logwarn("[LEADER]: I am not the leader.")
-            rospy.sleep(2)
-            return 'initialized'
+        return 'finished'
 
 
-class CommBase(smach.State):
+class Monitor(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['finished','aborted'])
         self.task_execution = False
 
     def finish_callback(self, msg):
         if msg.data:
-            rospy.logwarn("[TASK]: Finish trigger received!")
+            rospy.logwarn("[MONITOR]: Finish trigger received!")
             self.task_execution = msg.data
 
     def execute(self, userdata):
-        rospy.loginfo("[TASK]: Executing base communication task.")
+        rospy.loginfo("[MONITOR]: Executing base communication task.")
 
         self.task_execution = False
         rospy.Subscriber('fms/finish', Bool, self.finish_callback)
 
-        rate = rospy.Rate(10)
-        while True:
-            if self.preempt_requested():
-                rospy.logwarn("[TASK]: Preempt requested! Aborting task.")
-                self.service_preempt()
-                return 'finished'  # Exit cleanly
-            if self.task_execution:
-                rospy.loginfo("[TASK]: Task execution completed normally.")
-                return 'finished'
-            # Simulate task operations here
+        rate = rospy.Rate(0.5)
+        while not self.task_execution:
+            rospy.logwarn_throttle(5, f"[MONITOR]: Waiting to finish.")
             rate.sleep()
+
+        return 'finished'
 
 
 class Abort(smach.State):
@@ -464,16 +391,16 @@ def main():
 
     with sm:
         smach.StateMachine.add('INIT', Init(), transitions={
-            'initialized': 'LEADER',
+            'initialized': 'SWARM_INIT',
             'failed': 'INIT'
         })
 
-        smach.StateMachine.add('LEADER', CommLeader(), transitions={
-            'initialized': 'TASK',
-            'failed': 'ABORT'
+        smach.StateMachine.add('SWARM_INIT', SwarmInit(), transitions={
+            'finished': 'MONITOR',
+            'aborted': 'ABORT'
         })
-
-        smach.StateMachine.add('TASK', CommBase(), transitions={
+  
+        smach.StateMachine.add('MONITOR', Monitor(), transitions={
             'finished': 'SHUTDOWN',
             'aborted': 'ABORT'
         })
