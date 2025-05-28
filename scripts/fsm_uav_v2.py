@@ -325,7 +325,7 @@ class SwarmInit(smach.State):
         if not self.goto_service(self.uav_name,
                                 self.pose_start.pose.position.x,
                                 self.pose_start.pose.position.y,
-                                self.height_formation):
+                                self.pose_start.pose.position.z):
             return 'aborted'
 
         while True:
