@@ -14,6 +14,7 @@ public:
     ImuMerger()
     {
         nh = ros::NodeHandle("~");
+        nh.param<std::string>("uav_name", uav_name, "uav6");
         imu_a_sub_.subscribe(nh, "input_topic_main", 10);
         imu_b_sub_.subscribe(nh, "input_topic_ref", 10);
 
@@ -32,6 +33,7 @@ private:
     message_filters::Subscriber<Imu> imu_b_sub_;
     boost::shared_ptr<Synchronizer<SyncPolicy>> sync_;
     ros::Publisher imu_pub_, orientation_pub_;
+    std::string uav_name;
 
     void callback(const ImuConstPtr& imu_a, const ImuConstPtr& imu_b)
     {
@@ -40,6 +42,8 @@ private:
 
         // Use header from IMU A
         merged.header = imu_a->header;
+        merged.header.frame_id = uav_name + "/fcu";
+        merged.header.stamp = ros::Time::now();
 
         // Orientation from IMU B
         merged.orientation = imu_b->orientation;
@@ -49,6 +53,9 @@ private:
         merged.angular_velocity = imu_b->angular_velocity;
         merged.angular_velocity_covariance = imu_b->angular_velocity_covariance;
 
+        // merged.linear_acceleration.x = 0.0;
+        // merged.linear_acceleration.y = 0.0;
+        // merged.linear_acceleration.z = imu_b->linear_acceleration.z;
         merged.linear_acceleration = imu_b->linear_acceleration;
         merged.linear_acceleration_covariance = imu_b->linear_acceleration_covariance;
 
