@@ -24,6 +24,8 @@ class IMUCalibration
 
             // Subscriber for IMU data
             imu_sub1_ = nh_.subscribe("input_topic_main", 1, &IMUCalibration::imuCallback1, this);
+            received_lla_offset = false;
+            received_wit_offset = false;
 
             if (!apply_offset)
             {
@@ -65,9 +67,9 @@ class IMUCalibration
         void offsetCallback(const std_msgs::Float32::ConstPtr& msg)
         {
             ROS_INFO_ONCE("Callback function for LLA calibration.");
-            heading_offset = msg->data;
-            ROS_INFO_ONCE("Offset: %f", heading_offset);
-            received_offset = true;
+            heading_lla_offset = msg->data;
+            ROS_INFO_ONCE("Offset: %f", heading_lla_offset);
+            received_lla_offset = true;
         }
 
         // Callback function for the first IMU sensor
@@ -76,7 +78,7 @@ class IMUCalibration
             sensor_msgs::Imu imu_data1_ = *msg;
             geometry_msgs::QuaternionStamped q_msg;
 
-            if (self_offset)
+            if (apply_offset)
             {
                 ROS_INFO_ONCE("Callback function for self calibration.");
                 if (buffer1_.size() < maxSize)
@@ -90,34 +92,48 @@ class IMUCalibration
                 static bool initial_heading = false;
                 if (!initial_heading)
                 {
-                    ROS_INFO_ONCE("Calculate the average of the current elements in the buffer.");
+                    ROS_INFO_ONCE("Calculate the average of the current elements in the buffer (Internal IMU).");
                     initial_heading = true;
                     heading_offset = calculateAverage(buffer1_);
-                    ROS_INFO_ONCE("Offset: %f", heading_offset);
-                    received_offset = true;
+                    ROS_INFO_ONCE("Offset internal IMU: %f", heading_offset);
                     return;
                 }
-            }
 
-            if (apply_offset)
-            {
-                if (!received_offset)
+                if (imu_offset && !received_wit_offset)
                 {
-                    ROS_INFO_ONCE("Waiting for the result.");
+                    ROS_INFO_ONCE("Waiting for the wit result.");
+                    return;
+                }
+
+                if (lla_offset && !received_lla_offset)
+                {
+                    ROS_INFO_ONCE("Waiting for the LLA result.");
                     return;
                 }
                 
-                ROS_INFO_ONCE("Applying the imu calibrationn.");
                 double roll, pitch, heading;
                 imuRPY2rosRPY(&imu_data1_, &roll, &pitch, &heading);
-                if (imu_offset)
+
+                if (self_offset)
                 {
-                    imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading_imu - wit_offset);
+                    ROS_INFO_ONCE("Applying the self offset calibration.");
+                    heading -= heading_offset;
+                }
+                else if (lla_offset)
+                {
+                    ROS_INFO_ONCE("Applying the LLA offset calibration.");
+                    heading -= heading_offset + heading_lla_offset;
+                }
+                else if (imu_offset)
+                {
+                    ROS_INFO_ONCE("Applying the External IMU offset calibration.");
+                    heading = heading - heading_offset + (heading_imu - wit_offset);
                 }
                 else
                 {
-                    imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading - heading_offset);
+                    ROS_INFO_ONCE("No offset applied.");
                 }
+                imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading);
             }
             else
             {
@@ -148,10 +164,10 @@ class IMUCalibration
             if (!initial_heading)
             {
                 initial_heading = true;
-                ROS_INFO_ONCE("Calculate the average of the current elements in the buffer.");
+                ROS_INFO_ONCE("Calculate the average of the current elements in the buffer (External IMU).");
                 heading_imu = calculateAverage(buffer2_);
-                ROS_INFO_ONCE("Offset from WIT: %f", heading_imu);
-                received_offset = true;
+                ROS_INFO_ONCE("Offset external IMU: %f", heading_imu);
+                received_wit_offset = true;
                 return;
             }
         }
@@ -195,9 +211,9 @@ class IMUCalibration
         std::string published_topic;
         std::deque<tf::Quaternion> buffer1_, buffer2_;
         int maxSize;
-        double heading_imu, heading_offset, wit_offset;
+        double heading_imu, heading_offset, heading_lla_offset, wit_offset;
         bool apply_offset, self_offset, imu_offset, lla_offset;
-        bool received_offset = false;
+        bool received_lla_offset, received_wit_offset;
 };
 
 
