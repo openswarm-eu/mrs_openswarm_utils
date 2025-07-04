@@ -32,14 +32,34 @@ class Init(smach.State):
         # Get computer name list from parameter server
         self.computer_name = rospy.get_param("~computer_name", "computer1")
 
+    # # Subscribe to GNSS
+    # def uav_status_callback(self, msg):
+    #     if msg.hw_api_gnss_ok == True:
+    #         self.hw_api_gnss_ok = True
+    #         rospy.loginfo_throttle(10, "GPS is publishing normally.")
+    #     else:
+    #         self.hw_api_gnss_ok = False
+    #         rospy.loginfo_throttle(10, "GPS not received yet.")
+
     # Subscribe to GNSS
     def uav_status_callback(self, msg):
-        if msg.hw_api_gnss_ok == True:
-            self.hw_api_gnss_ok = True
-            rospy.loginfo_throttle(10, "GPS is publishing normally.")
-        else:
+        self.last_msg_time_gnss = time.time()
+        if not self.hw_api_gnss_ok:
+            rospy.loginfo("GNSS is now active.")
+        self.hw_api_gnss_ok = True
+
+    def check_gnss_status(self, event):
+        if self.last_msg_time_gnss is None:
+            rospy.logwarn_throttle(5, "GNSS not received yet.")
+            return
+
+        time_since_last = time.time() - self.last_msg_time_gnss
+        if time_since_last > self.timeout:
+            if self.hw_api_gnss_ok:
+                rospy.logwarn(f"GNSS stopped publishing ({time_since_last:.1f}s since last message)")
             self.hw_api_gnss_ok = False
-            rospy.loginfo_throttle(10, "GPS not received yet.")
+        else:
+            rospy.loginfo_throttle(10, "GNSS is publishing normally.")
 
     # Subscribe to 3D Lidar
     def lidar_3d_callback(self, msg):
@@ -118,9 +138,11 @@ class Init(smach.State):
 
         self.timeout = 2.0
         self.last_msg_time = None
+        self.last_msg_time_gnss = None
         self.lidar_active = False
 
         rospy.Timer(rospy.Duration(1.0), self.check_lidar_status)
+        rospy.Timer(rospy.Duration(1.0), self.check_gnss_status)
 
         # Publisher of status 
         self.pub = rospy.Publisher('fms/drone_status', UInt8MultiArray, queue_size=10)
@@ -318,7 +340,7 @@ class SwarmInit(smach.State):
             rospy.loginfo(f"[SWARM_INIT]: {self.uav_name} is not flying")
             return 'aborted'
 
-        distance = self.euclidean_distance(self.pose_start, self.odom)
+        distance = self.euclidean_distance(self.pose_start, self.odom, True)
         rospy.logwarn(f"[SWARM_INIT]: Pose start: {self.pose_start}")
         rospy.logwarn(f"[SWARM_INIT]: Distance to target: {distance}")
 
@@ -329,9 +351,9 @@ class SwarmInit(smach.State):
             return 'aborted'
 
         while True:
-            distance = self.euclidean_distance(self.pose_start, self.odom)
+            distance = self.euclidean_distance(self.pose_start, self.odom, True)
             rospy.logwarn_throttle(5, f"[SWARM_INIT]: Distance to target: {distance}")
-            if self.euclidean_distance(self.pose_start, self.odom) < self.tolerance_distance:
+            if self.euclidean_distance(self.pose_start, self.odom, True) < self.tolerance_distance:
                 if not self.goto_fcu_service(self.uav_name, 0.0, 0.0, 0.0):
                     return 'aborted'
                 break

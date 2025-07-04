@@ -1,0 +1,14 @@
+<launch>
+
+  <!-- args corresponding to environment variables -->
+  <arg name="UAV_NAME" default="$(optenv UAV_NAME)" />
+
+  <group ns="$(arg UAV_NAME)">
+    <node name="repub_odom_tf_desired" pkg="mrs_openswarm_utils" type="repub_odom_tf_desired" output="screen">
+      <param name="uav_name" value="$(arg UAV_NAME)" />
+      <param name="target_frame" value="$(arg UAV_NAME)/utm_origin" />
+      <remap from="odom" to="estimation_manager/odom_main" />
+    </node>
+  </group>
+
+</launch>

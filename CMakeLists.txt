@@ -25,6 +25,7 @@ find_package(catkin REQUIRED COMPONENTS
   dcl_lio_sam
   dcl_slam
   mrs_modules_msgs
+  tf2_geometry_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -246,6 +247,9 @@ target_link_libraries(distance_calibration ${catkin_LIBRARIES})
 
 add_executable(tf_relay_node src/tf_relay_node.cpp)
 target_link_libraries(tf_relay_node ${catkin_LIBRARIES})
+
+add_executable(repub_odom_tf_desired src/repub_odom_tf_desired.cpp)
+target_link_libraries(repub_odom_tf_desired ${catkin_LIBRARIES})
 
 # link directories
 link_directories(
