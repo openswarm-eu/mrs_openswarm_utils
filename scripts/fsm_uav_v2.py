@@ -12,6 +12,7 @@ from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
 from std_srvs.srv import Trigger, TriggerRequest
 from mrs_msgs.srv import Vec4, Vec4Request
+from mrs_msgs.srv import TransformPoseSrv, TransformPoseSrvRequest
 import tf2_ros
 import tf2_geometry_msgs
 import utm
@@ -242,6 +243,12 @@ class SwarmInit(smach.State):
             rospy.loginfo(f"[SWARM_INIT]: Waiting for goto service: {service_name}")
             rospy.wait_for_service(service_name)
             self.uav_goto_fcu_services[name] = rospy.ServiceProxy(service_name, Vec4)
+        # Transform Services
+        for name in self.drone_list:
+            service_name = f'/{name}/control_manager/transform_pose'
+            rospy.loginfo(f"[SWARM_INIT]: Waiting for transform service: {service_name}")
+            rospy.wait_for_service(service_name)
+            self.uav_transform_services[name] = rospy.ServiceProxy(service_name, TransformPoseSrv)
 
     def takeoff_service(self, uav):
         request = TriggerRequest()
@@ -318,6 +325,7 @@ class SwarmInit(smach.State):
         self.uav_takeoff_services = {}
         self.uav_goto_services = {}
         self.uav_goto_fcu_services = {}
+        self.uav_transform_services = {}
         self.init_service_proxies()
 
         while not self.swarm_init:
@@ -340,23 +348,31 @@ class SwarmInit(smach.State):
             rospy.loginfo(f"[SWARM_INIT]: {self.uav_name} is not flying")
             return 'aborted'
 
-        distance = self.euclidean_distance(self.pose_start, self.odom, True)
-        rospy.logwarn(f"[SWARM_INIT]: Pose start: {self.pose_start}")
+        transform_pose_srv = TransformPoseSrvRequest()
+        transform_pose_srv.frame_id = self.odom.header.frame_id
+        transform_pose_srv.pose = self.pose_start
+        response = self.uav_transform_services[self.uav_name](transform_pose_srv)
+
+        self.pose_start_ = response.pose
+
+        distance = self.euclidean_distance(self.pose_start_, self.odom, True)
+        rospy.logwarn(f"[SWARM_INIT]: Pose start: {self.pose_start_}")
         rospy.logwarn(f"[SWARM_INIT]: Distance to target: {distance}")
 
         if not self.goto_service(self.uav_name,
-                                self.pose_start.pose.position.x,
-                                self.pose_start.pose.position.y,
-                                self.pose_start.pose.position.z):
+                                self.pose_start_.pose.position.x,
+                                self.pose_start_.pose.position.y,
+                                self.pose_start_.pose.position.z):
             return 'aborted'
 
         while True:
-            distance = self.euclidean_distance(self.pose_start, self.odom, True)
+            distance = self.euclidean_distance(self.pose_start_, self.odom, True)
             rospy.logwarn_throttle(5, f"[SWARM_INIT]: Distance to target: {distance}")
-            if self.euclidean_distance(self.pose_start, self.odom, True) < self.tolerance_distance:
+            if self.euclidean_distance(self.pose_start_, self.odom, True) < self.tolerance_distance:
                 if not self.goto_fcu_service(self.uav_name, 0.0, 0.0, 0.0):
                     return 'aborted'
                 break
+            rospy.sleep(0.2)
 
         return 'finished'
 
