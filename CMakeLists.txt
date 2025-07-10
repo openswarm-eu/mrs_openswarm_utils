@@ -22,8 +22,7 @@ find_package(catkin REQUIRED COMPONENTS
   tf2
   tf2_ros
   tf2_sensor_msgs
-  dcl_lio_sam
-  dcl_slam
+  lio_sam
   mrs_modules_msgs
   tf2_geometry_msgs
 )
