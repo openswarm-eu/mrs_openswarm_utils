@@ -20,6 +20,7 @@ class IMUCalibration
             nh_.param<bool>("self_offset", self_offset, false);
             nh_.param<bool>("imu_offset", imu_offset, false);
             nh_.param<bool>("lla_offset", lla_offset, false);
+            nh_.param<bool>("self_offset_wit", self_offset_wit, false);
             nh_.param<double>("wit_offset", wit_offset, 0.0);
 
             // Subscriber for IMU data
@@ -135,6 +136,16 @@ class IMUCalibration
                 }
                 imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading);
             }
+            else if (self_offset_wit)
+            {
+                // This case (self_offset_wit=true) is used only when the main IMU is Wit (input_topic_main)
+                // The wit_offset is a parameter which its value is obtained when the IMU is pointing east
+                ROS_INFO_ONCE("Special Case: Wit is the main IMU.");
+                double roll, pitch, heading;
+                imuRPY2rosRPY(&imu_data1_, &roll, &pitch, &heading);
+                heading -= wit_offset;
+                imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading);
+            }
             else
             {
                 ROS_INFO_ONCE("No offset applied.");
@@ -212,7 +223,7 @@ class IMUCalibration
         std::deque<tf::Quaternion> buffer1_, buffer2_;
         int maxSize;
         double heading_imu, heading_offset, heading_lla_offset, wit_offset;
-        bool apply_offset, self_offset, imu_offset, lla_offset;
+        bool apply_offset, self_offset, imu_offset, lla_offset, self_offset_wit;
         bool received_lla_offset, received_wit_offset;
 };
 
