@@ -23,6 +23,17 @@ class IMUCalibration
             nh_.param<bool>("self_offset_wit", self_offset_wit, false);
             nh_.param<double>("wit_offset", wit_offset, 0.0);
 
+            // Get the current node's namespace
+            node_namespace = ros::this_node::getNamespace();
+
+            // Strip leading slash if present
+            if (!node_namespace.empty() && node_namespace.front() == '/')
+                node_namespace = node_namespace.substr(1);  // remove first character
+
+            // Optionally add separator slash if needed
+            if (!node_namespace.empty() && node_namespace.back() != '/')
+                node_namespace += "/";
+
             // Subscriber for IMU data
             imu_sub1_ = nh_.subscribe("input_topic_main", 1, &IMUCalibration::imuCallback1, this);
             received_lla_offset = false;
@@ -145,6 +156,7 @@ class IMUCalibration
                 imuRPY2rosRPY(&imu_data1_, &roll, &pitch, &heading);
                 heading -= wit_offset;
                 imu_data1_.orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, heading);
+                imu_data1_.header.frame_id = node_namespace + imu_data1_.header.frame_id;
             }
             else
             {
@@ -220,6 +232,7 @@ class IMUCalibration
         ros::Publisher imu_pub1_, orientation_pub1_;
         std::string subscribed_topic;
         std::string published_topic;
+        std::string node_namespace;
         std::deque<tf::Quaternion> buffer1_, buffer2_;
         int maxSize;
         double heading_imu, heading_offset, heading_lla_offset, wit_offset;

@@ -20,7 +20,7 @@ def create_marker(frame_id, marker_id, pose, color=(0.0, 1.0, 0.0), scale=0.3):
     marker.lifetime = rospy.Duration(0)
     return marker
 
-def create_text_marker(frame_id, marker_id, text, pose, z_offset=1.0):
+def create_text_marker(frame_id, marker_id, text, pose, z_offset=1.0, scale=0.6):
     marker = Marker()
     marker.header.frame_id = frame_id
     marker.header.stamp = rospy.Time.now()
@@ -32,7 +32,7 @@ def create_text_marker(frame_id, marker_id, text, pose, z_offset=1.0):
     marker.pose.position.y = pose.pose.position.y
     marker.pose.position.z = pose.pose.position.z + z_offset  # Lift text above sphere
 
-    marker.scale.z = 0.6  # Larger text size
+    marker.scale.z = scale  # Larger text size
 
     marker.color.r = 0.0
     marker.color.g = 0.0

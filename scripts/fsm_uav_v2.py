@@ -5,7 +5,7 @@ import rosnode
 import smach
 import smach_ros
 from smach import Concurrence
-from sensor_msgs.msg import PointCloud2
+from sensor_msgs.msg import PointCloud2, NavSatFix
 from mrs_msgs.msg import UavStatus, UavManagerDiagnostics, HwApiRcChannels, ControlManagerDiagnostics
 from std_msgs.msg import Bool, String, UInt8MultiArray
 from geometry_msgs.msg import PoseStamped
@@ -33,21 +33,20 @@ class Init(smach.State):
         # Get computer name list from parameter server
         self.computer_name = rospy.get_param("~computer_name", "computer1")
 
-    # # Subscribe to GNSS
-    # def uav_status_callback(self, msg):
-    #     if msg.hw_api_gnss_ok == True:
-    #         self.hw_api_gnss_ok = True
-    #         rospy.loginfo_throttle(10, "GPS is publishing normally.")
-    #     else:
-    #         self.hw_api_gnss_ok = False
-    #         rospy.loginfo_throttle(10, "GPS not received yet.")
-
     # Subscribe to GNSS
     def uav_status_callback(self, msg):
+        if msg.hw_api_gnss_ok == True:
+            rospy.loginfo_throttle(10, "UAV is publishing normally.")
+        else:
+            rospy.loginfo_throttle(10, "UAV not received yet.")
+
+    # Subscribe to GNSS
+    def gnss_status_callback(self, msg):
         self.last_msg_time_gnss = time.time()
         if not self.hw_api_gnss_ok:
             rospy.loginfo("GNSS is now active.")
         self.hw_api_gnss_ok = True
+        self.gnss_status = msg.status.status
 
     def check_gnss_status(self, event):
         if self.last_msg_time_gnss is None:
@@ -59,8 +58,14 @@ class Init(smach.State):
             if self.hw_api_gnss_ok:
                 rospy.logwarn(f"GNSS stopped publishing ({time_since_last:.1f}s since last message)")
             self.hw_api_gnss_ok = False
+            self.gnss_fix_ok = False
         else:
-            rospy.loginfo_throttle(10, "GNSS is publishing normally.")
+            if self.gnss_status == 2:
+                rospy.loginfo_throttle(10, "GNSS is publishing normally: STATUS_GBAS_FIX.")
+                self.gnss_fix_ok = True
+            else:
+                rospy.loginfo_throttle(10, "GNSS is publishing normally, but status is %d.", self.gnss_status)
+                self.gnss_fix_ok = False
 
     # Subscribe to 3D Lidar
     def lidar_3d_callback(self, msg):
@@ -129,6 +134,7 @@ class Init(smach.State):
 
         # Flags
         self.hw_api_gnss_ok = False
+        self.gnss_fix_ok = False
         self.swarm_communication = False
         self.logged_can_take = False
         self.can_take_ok = False
@@ -142,6 +148,9 @@ class Init(smach.State):
         self.last_msg_time_gnss = None
         self.lidar_active = False
 
+        # Value of gnss status
+        self.gnss_status = 0
+
         rospy.Timer(rospy.Duration(1.0), self.check_lidar_status)
         rospy.Timer(rospy.Duration(1.0), self.check_gnss_status)
 
@@ -153,6 +162,7 @@ class Init(smach.State):
 
         # Subscribe to sensors
         rospy.Subscriber('mrs_uav_status/uav_status', UavStatus, self.uav_status_callback)
+        rospy.Subscriber('gnss_verifier/gnss_wstatus', NavSatFix, self.gnss_status_callback)
         rospy.Subscriber('lslidar/pcl_filtered', PointCloud2, self.lidar_3d_callback)
 
         # Subscriber automatic start
@@ -184,7 +194,7 @@ class Init(smach.State):
             status = UInt8MultiArray()
             # 1 for True, 0 for False
             status.data = [
-                int(self.hw_api_gnss_ok),
+                int(self.gnss_status),
                 int(self.lidar_active),
                 int(self.swarm_communication),
                 int(self.can_take_ok),
