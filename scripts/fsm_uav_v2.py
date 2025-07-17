@@ -64,7 +64,7 @@ class Init(smach.State):
                 rospy.loginfo_throttle(10, "GNSS is publishing normally: STATUS_GBAS_FIX.")
                 self.gnss_fix_ok = True
             else:
-                rospy.loginfo_throttle(10, "GNSS is publishing normally, but status is %d.", self.gnss_status)
+                rospy.loginfo_throttle(10, f"GNSS is publishing normally, but status is {self.gnss_status}")
                 self.gnss_fix_ok = False
 
     # Subscribe to 3D Lidar
