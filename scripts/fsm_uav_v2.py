@@ -185,7 +185,7 @@ class Init(smach.State):
         while not rospy.is_shutdown() and not self.swarm_init_received:
             rospy.loginfo_throttle(5, "[INIT]: Sending INIT heartbeat to base.")
             rospy.logwarn("[INIT]: gnss=%s, lidar_3d=%s, swarm=%s, pre-flight=%s, motor_off=%s, armed=%s, offboard:%s",
-                        self.hw_api_gnss_ok, self.lidar_active, self.swarm_communication, 
+                        self.gnss_fix_ok, self.lidar_active, self.swarm_communication, 
                         self.can_take_ok, self.rc_motor_off, self.rc_arm, self.rc_offboard)
 
             if all(self.drone_status.values()):
