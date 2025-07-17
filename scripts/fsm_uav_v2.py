@@ -194,7 +194,7 @@ class Init(smach.State):
             status = UInt8MultiArray()
             # 1 for True, 0 for False
             status.data = [
-                int(self.gnss_status),
+                int(self.gnss_fix_ok),
                 int(self.lidar_active),
                 int(self.swarm_communication),
                 int(self.can_take_ok),
