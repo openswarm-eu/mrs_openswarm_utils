@@ -101,6 +101,7 @@ class InitTakeOff(smach.State):
         self.longitude_end = rospy.get_param("~longitude_end", 0.0)
         self.six_formation = rospy.get_param("~six_formation", "regular")
         self.nine_formation = rospy.get_param("~nine_formation", "v_formation")
+        self.distance = rospy.get_param("~distance", "0.0")
 
         self.publishers_drones = rospy.Publisher('fms/swarm_check', PoseStamped, queue_size=10)
 
@@ -146,32 +147,32 @@ class InitTakeOff(smach.State):
         # Mark start point
         x, y, z = latlon_to_utm(self.latitude_start, self.longitude_start, self.height_formation)
         pose_start_utm = create_pose_stamped(x, y, z, self.drone_list[0] + "/utm_navsat")
-        # self.pose_start_transformed = self.transform_pose_frame(pose_start_utm, \
-        #                                     self.drone_list[0] + "/stable_origin", \
-        #                                     self.drone_list[0] + "/utm_navsat")
+        self.pose_start_transformed = self.transform_pose_frame(pose_start_utm, \
+                                            self.drone_list[0] + "/stable_origin", \
+                                            self.drone_list[0] + "/utm_navsat")
 
-        # if self.pose_start_transformed == None:
-        #     return 'failed'
+        if self.pose_start_transformed == None:
+            return 'failed'
 
-        # index = 30
-        # marker_array.markers.append(create_marker("common_origin", index, self.pose_start_transformed))
-        # marker_array.markers.append(create_text_marker("common_origin", 100 + index, "start", self.pose_start_transformed))
-        # pub.publish(marker_array)
+        index = 30
+        marker_array.markers.append(create_marker("common_origin", index, self.pose_start_transformed))
+        marker_array.markers.append(create_text_marker("common_origin", 100 + index, "start", self.pose_start_transformed))
+        pub.publish(marker_array)
 
         # Mark end point
         x, y, z = latlon_to_utm(self.latitude_end, self.longitude_end, self.height_formation)
         pose_end_utm = create_pose_stamped(x, y, z, self.drone_list[0] + "/utm_navsat")
-        # self.pose_end_transformed = self.transform_pose_frame(pose_end_utm, \
-        #                                     self.drone_list[0] + "/stable_origin", \
-        #                                     self.drone_list[0] + "/utm_navsat")
+        self.pose_end_transformed = self.transform_pose_frame(pose_end_utm, \
+                                            self.drone_list[0] + "/stable_origin", \
+                                            self.drone_list[0] + "/utm_navsat")
 
-        # if self.pose_end_transformed == None:
-        #     return 'failed'
+        if self.pose_end_transformed == None:
+            return 'failed'
 
-        # index = 20
-        # marker_array.markers.append(create_marker("common_origin", index, self.pose_end_transformed))
-        # marker_array.markers.append(create_text_marker("common_origin", 100 + index, "end", self.pose_end_transformed))
-        # pub.publish(marker_array)
+        index = 20
+        marker_array.markers.append(create_marker("common_origin", index, self.pose_end_transformed))
+        marker_array.markers.append(create_text_marker("common_origin", 100 + index, "end", self.pose_end_transformed))
+        pub.publish(marker_array)
 
         # Swarm Poses
         pose_array = PoseArray()
@@ -187,17 +188,17 @@ class InitTakeOff(smach.State):
         elif len(self.drone_list) == 3:
             rospy.loginfo("Three drones.")
             # Create a formation
-            formation_points, sequence = compute_formation_positions(self.drone_list, pose_start_utm, pose_end_utm, 0.0, 0.0)
+            formation_points, sequence = compute_formation_positions(self.drone_list, pose_start_utm, pose_end_utm, self.distance, 0.0)
             rospy.loginfo(f"[INIT_TAKE_OFF]: Formation Points: {formation_points}")
         elif len(self.drone_list) == 6:
             rospy.loginfo("Six drones.")
             # Create a formation
-            formation_points, sequence = compute_formation_positions(self.drone_list, pose_start_utm, pose_end_utm, 0.0, 0.0, self.six_formation)
+            formation_points, sequence = compute_formation_positions(self.drone_list, pose_start_utm, pose_end_utm, self.distance, 0.0, self.six_formation)
             rospy.loginfo(f"[INIT_TAKE_OFF]: Formation Points: {formation_points}")
         elif len(self.drone_list) == 9:
             rospy.loginfo("Nine drones.")
             # Create a formation
-            formation_points, sequence = compute_formation_positions(self.drone_list, pose_start_utm, pose_end_utm, 0.0, 0.0, self.nine_formation)
+            formation_points, sequence = compute_formation_positions(self.drone_list, pose_start_utm, pose_end_utm, self.distance, 0.0, self.nine_formation)
             rospy.loginfo(f"[INIT_TAKE_OFF]: Formation Points: {formation_points}")
         else:
             rospy.loginfo("Unknown formation.") 
@@ -212,11 +213,11 @@ class InitTakeOff(smach.State):
             name = self.drone_list[sequence[index]]
             rospy.loginfo(f"[INIT_TAKE_OFF]: Drone: {name}")
             swarm_poses[sequence[index]].header.stamp = rospy.Time.now()
-            # swarm_poses_transformed = self.transform_pose_frame(swarm_poses[sequence[index]], \
-            #                                     name + "/stable_origin", \
-            #                                     name + "/utm_navsat")
-            # swarm_poses_transformed.header.frame_id = name + "/stable_origin"
-            # # rospy.loginfo(f"[INIT_TAKE_OFF]: Pose {swarm_poses_transformed}.")
+            swarm_poses_transformed = self.transform_pose_frame(swarm_poses[sequence[index]], \
+                                                name + "/stable_origin", \
+                                                name + "/utm_navsat")
+            swarm_poses_transformed.header.frame_id = name + "/stable_origin"
+            # rospy.loginfo(f"[INIT_TAKE_OFF]: Pose {swarm_poses_transformed}.")
 
             # Mark pose
             marker_array.markers.append(create_marker("common_origin", index, swarm_poses[sequence[index]]))
