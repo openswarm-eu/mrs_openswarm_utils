@@ -237,35 +237,61 @@ class InitTakeOff(smach.State):
 class InitSwarm(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['passed', 'failed'], input_keys=['formation_points_in'])
+        self.latitude_start = rospy.get_param("~latitude_start", 0.0)
+        self.longitude_start = rospy.get_param("~longitude_start", 0.0)
         self.latitude_end = rospy.get_param("~latitude_end", 0.0)
         self.longitude_end = rospy.get_param("~longitude_end", 0.0)
         self.height_formation = rospy.get_param("~height_formation", 0.0)
         self.drone_list = rospy.get_param('~uav_names', [])
+        self.distance = rospy.get_param("~distance", "0.0")
 
         self.publish_pose_array = rospy.Publisher('swarm_formation/positions', PoseArray, queue_size=10)
+
+    def wait_for_enter(self):
+        input("Press Enter to continue to next target...")
 
     def execute(self, userdata):
         rospy.logwarn("[INIT_SWARM]: Initializing Swarm State.")
 
-        # Swarm Poses
-        pose_array = PoseArray()
-        pose_array.header.stamp = rospy.Time.now()
-        pose_array.header.frame_id = self.drone_list[0] + "/utm_navsat"
+        waypoint_list = [
+            (self.latitude_end, self.longitude_end, self.height_formation)
+        ]
 
-        x, y, z = latlon_to_utm(self.latitude_end, self.longitude_end, self.height_formation)
-        for i in range(len(userdata.formation_points_in)):
-            pose_end_utm = create_pose_stamped(x, y, z, self.drone_list[i] + "/utm_navsat")
-            pose = Pose()
-            pose.position.x = pose_end_utm.pose.position.x + userdata.formation_points_in[self.drone_list[i]][0]
-            pose.position.y = pose_end_utm.pose.position.y + userdata.formation_points_in[self.drone_list[i]][1]
-            pose.position.z = self.height_formation
-            # rospy.loginfo(f"[INIT_TAKE_OFF]: Pose {i}: {pose.position.x}, {pose.position.y}, {pose.position.z}")
+        for idx, (latitude, longitude, height) in enumerate(waypoint_list):
+            rospy.loginfo(f"[INIT_SWARM]: Publishing formation for waypoint #{idx + 1}")
 
-            pose_array.poses.append(pose)
+            # Mark start point
+            x, y, z = latlon_to_utm(self.latitude_start, self.longitude_start, self.height_formation)
+            pose_start_utm = create_pose_stamped(x, y, z, self.drone_list[0] + "/utm_navsat")
 
+            # Mark end point
+            x, y, z = latlon_to_utm(latitude, longitude, self.height_formation)
+            pose_end_utm = create_pose_stamped(x, y, z, self.drone_list[0] + "/utm_navsat")
 
-        self.publish_pose_array.publish(pose_array)
-        rospy.loginfo("Published %d poses", len(userdata.formation_points_in))
+            formation_points, sequence = compute_formation_positions(self.drone_list, pose_start_utm, pose_end_utm, self.distance, 0.0)
+
+            pose_array = PoseArray()
+            pose_array.header.stamp = rospy.Time.now()
+            pose_array.header.frame_id = self.drone_list[0] + "/utm_navsat"
+
+            for i in range(len(formation_points)):
+                drone_id = self.drone_list[i]
+                pose_end_utm = create_pose_stamped(x, y, z, drone_id + "/utm_navsat")
+
+                pose = Pose()
+                pose.position.x = pose_end_utm.pose.position.x + formation_points[drone_id][0]
+                pose.position.y = pose_end_utm.pose.position.y + formation_points[drone_id][1]
+                pose.position.z = height
+
+                pose_array.poses.append(pose)
+
+            self.publish_pose_array.publish(pose_array)
+            rospy.loginfo("Published %d poses for waypoint #%d", len(pose_array.poses), idx + 1)
+
+            self.latitude_start = latitude
+            self.longitude_start = longitude
+
+            self.wait_for_enter()
 
         rospy.sleep(2)
         return 'passed'
