@@ -9,7 +9,7 @@
 #include "mrs_openswarm_utils/save_map.h"
 #include <pcl/io/pcd_io.h>
 #include <pcl/registration/icp.h>
-#include "lio_sam/save_map.h"
+#include "dcl_lio_sam/save_map.h"
 
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -64,8 +64,8 @@ class MapGeneration
                     // Service Server
                     srvSaveMap  = nh_.advertiseService("save_map", &MapGeneration::saveMapService, this);
                     // Service Client
-                    robot.service_name_ = name_ + "/lio_sam/save_map";
-                    robot.srv_client_map = nh_.serviceClient<lio_sam::save_map>(robot.service_name_);
+                    robot.service_name_ = name_ + "/dcl_lio_sam/save_map";
+                    robot.srv_client_map = nh_.serviceClient<dcl_lio_sam::save_map>(robot.service_name_);
                     // Define the ICP target
                     robot_target = it;
                 }
@@ -74,8 +74,8 @@ class MapGeneration
                     // Subscriber its map
                     // robot.map_sub_ = nh_.subscribe<sensor_msgs::PointCloud2>(name_ + "/distributedMapping/globalMap", 1, boost::bind(&MapGeneration::mapHandler, this, _1, it));
                     // Service Client
-                    robot.service_name_ = name_ + "/lio_sam/save_map";
-                    robot.srv_client_map = nh_.serviceClient<lio_sam::save_map>(robot.service_name_);
+                    robot.service_name_ = name_ + "/dcl_lio_sam/save_map";
+                    robot.srv_client_map = nh_.serviceClient<dcl_lio_sam::save_map>(robot.service_name_);
                 }
                 robots.push_back(robot);
                 save_it.push_back(it);
@@ -101,7 +101,7 @@ class MapGeneration
             ROS_INFO("Save destination:  %s", saveMapDirectory_.c_str());
 
             // Service message
-            lio_sam::save_map srv;
+            dcl_lio_sam::save_map srv;
 
             // Wait for the service to be available
             ros::Duration timeout_(wait_time_);
