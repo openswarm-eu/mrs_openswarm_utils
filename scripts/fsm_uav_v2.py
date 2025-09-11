@@ -13,6 +13,7 @@ from nav_msgs.msg import Odometry
 from std_srvs.srv import Trigger, TriggerRequest
 from mrs_msgs.srv import Vec4, Vec4Request
 from mrs_msgs.srv import TransformPoseSrv, TransformPoseSrvRequest
+from mrs_msgs.srv import ReferenceStampedSrv, ReferenceStampedSrvRequest
 import tf2_ros
 import tf2_geometry_msgs
 import utm
@@ -225,6 +226,7 @@ class SwarmInit(smach.State):
         drone = frame_id.split('/')[0]
         if drone == self.uav_name:
             rospy.logwarn("[SWARM_INIT]: Swarm init trigger received!")
+            # rospy.logwarn(f"[SWARM_INIT]: Target pose: {msg}")
             self.pose_start = msg
             self.swarm_init = True
 
@@ -259,6 +261,12 @@ class SwarmInit(smach.State):
             rospy.loginfo(f"[SWARM_INIT]: Waiting for transform service: {service_name}")
             rospy.wait_for_service(service_name)
             self.uav_transform_services[name] = rospy.ServiceProxy(service_name, TransformPoseSrv)
+        # Reference Services
+        for name in self.drone_list:
+            service_name = f'/{name}/control_manager/reference'
+            rospy.loginfo(f"[SWARM_INIT]: Waiting for reference service: {service_name}")
+            rospy.wait_for_service(service_name)
+            self.uav_reference_services[name] = rospy.ServiceProxy(service_name, ReferenceStampedSrv)
 
     def takeoff_service(self, uav):
         request = TriggerRequest()
@@ -287,6 +295,22 @@ class SwarmInit(smach.State):
         try:
             rospy.loginfo(f"[{uav}] Sending goal: {request.goal}")
             response = self.uav_goto_fcu_services[uav](request)
+            rospy.loginfo(f"[{uav}] Response: success={response.success}, message='{response.message}'")
+        except rospy.ServiceException as e:
+            rospy.logerr(f"[{uav}] Service call failed: {e}")
+        return response.success
+
+    def uav_reference_service(self, uav, x, y, z, heading=0.0, frame_id="fcu"):
+        request = ReferenceStampedSrvRequest()
+        request.header.stamp = rospy.Time.now()
+        request.header.frame_id = f"{uav}/{frame_id}"
+        request.reference.position.x = x
+        request.reference.position.y = y
+        request.reference.position.z = z
+        request.reference.heading = heading
+        try:
+            rospy.loginfo(f"[{uav}] Sending goal: {request}")
+            response = self.uav_reference_services[uav](request)
             rospy.loginfo(f"[{uav}] Response: success={response.success}, message='{response.message}'")
         except rospy.ServiceException as e:
             rospy.logerr(f"[{uav}] Service call failed: {e}")
@@ -336,6 +360,7 @@ class SwarmInit(smach.State):
         self.uav_goto_services = {}
         self.uav_goto_fcu_services = {}
         self.uav_transform_services = {}
+        self.uav_reference_services = {}
         self.init_service_proxies()
 
         while not self.swarm_init:
@@ -366,19 +391,29 @@ class SwarmInit(smach.State):
         self.pose_start_ = response.pose
 
         distance = self.euclidean_distance(self.pose_start_, self.odom, True)
-        rospy.logwarn(f"[SWARM_INIT]: Pose start: {self.pose_start_}")
+        # rospy.logwarn(f"[SWARM_INIT]: Pose start: {self.pose_start_}")
         rospy.logwarn(f"[SWARM_INIT]: Distance to target: {distance}")
 
-        if not self.goto_service(self.uav_name,
-                                self.pose_start_.pose.position.x,
-                                self.pose_start_.pose.position.y,
-                                self.pose_start_.pose.position.z):
+        # if not self.goto_service(self.uav_name,
+        #                         self.pose_start_.pose.position.x,
+        #                         self.pose_start_.pose.position.y,
+        #                         self.pose_start_.pose.position.z):
+        #     return 'aborted'
+
+        if not self.uav_reference_service(self.uav_name,
+                                self.pose_start.pose.position.x,
+                                self.pose_start.pose.position.y,
+                                self.pose_start.pose.position.z,
+                                0.0, frame_id="utm_navsat"):
             return 'aborted'
+
+        self.drone_swarm_init = rospy.Publisher('fms/drone_swarm_init', Bool, queue_size=10)
 
         while True:
             distance = self.euclidean_distance(self.pose_start_, self.odom, True)
             rospy.logwarn_throttle(5, f"[SWARM_INIT]: Distance to target: {distance}")
             if self.euclidean_distance(self.pose_start_, self.odom, True) < self.tolerance_distance:
+                self.drone_swarm_init.publish(Bool(data=True))
                 if not self.goto_fcu_service(self.uav_name, 0.0, 0.0, 0.0):
                     return 'aborted'
                 break
@@ -391,6 +426,8 @@ class Monitor(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['finished','aborted'])
         self.task_execution = False
+        # Get computer name list from parameter server
+        self.computer_name = rospy.get_param("~computer_name", "computer1")
 
     def finish_callback(self, msg):
         if msg.data:
@@ -401,7 +438,7 @@ class Monitor(smach.State):
         rospy.loginfo("[MONITOR]: Executing base communication task.")
 
         self.task_execution = False
-        rospy.Subscriber('fms/finish', Bool, self.finish_callback)
+        rospy.Subscriber('/' + self.computer_name + '/fms/finish', Bool, self.finish_callback)
 
         rate = rospy.Rate(0.5)
         while not self.task_execution:
