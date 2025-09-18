@@ -1,0 +1,11 @@
+<launch>
+
+    <arg name="UAV_NAME" default="$(optenv UAV_NAME)"/>
+
+    <group ns="$(arg UAV_NAME)">
+        <node pkg="mrs_openswarm_utils" type="path_generator.py" name="path_generator" output="screen">
+            <rosparam file="$(find mrs_openswarm_utils)/config/waypoints.yaml" command="load"/>
+        </node>
+    </group>
+
+</launch>
