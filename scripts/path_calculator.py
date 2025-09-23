@@ -10,7 +10,7 @@ class PathDistanceCalculator:
     def __init__(self):
         rospy.init_node('path_distance_calculator_node', anonymous=True)
 
-        rospy.Subscriber('distributedMapping/path', Path, self.path_callback)
+        rospy.Subscriber('lio_sam/mapping/path', Path, self.path_callback)
         self.distance_pub = rospy.Publisher('distance_travelled', Float64, queue_size=10)
 
         rospy.loginfo("Path Distance Calculator Node Initialized")
