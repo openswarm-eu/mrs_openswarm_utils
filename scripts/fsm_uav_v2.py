@@ -404,7 +404,7 @@ class SwarmInit(smach.State):
                                 self.pose_start.pose.position.x,
                                 self.pose_start.pose.position.y,
                                 self.pose_start.pose.position.z,
-                                0.0, frame_id="utm_navsat"):
+                                0.0, frame_id=self.uav_name + "/utm_origin"):
             return 'aborted'
 
         self.drone_swarm_init = rospy.Publisher('fms/drone_swarm_init', Bool, queue_size=10)
