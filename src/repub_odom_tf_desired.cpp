@@ -36,7 +36,7 @@ public:
 
             nav_msgs::Odometry odom_transformed;
             odom_transformed.header.stamp = msg->header.stamp;
-            odom_transformed.header.frame_id = target_frame_;
+            odom_transformed.header.frame_id = msg->header.frame_id;
 
             // Transform the pose only
             tf2::doTransform(msg->pose.pose, odom_transformed.pose.pose, transform);
