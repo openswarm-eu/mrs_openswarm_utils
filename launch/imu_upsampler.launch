@@ -1,0 +1,13 @@
+<launch>
+
+    <arg name="target_rate" default="400"/>
+
+    <arg name="UAV_NAME" default="$(optenv UAV_NAME uav1)"/>
+
+    <group ns="$(arg UAV_NAME)">
+        <node pkg="mrs_openswarm_utils" type="imu_upsampler" name="imu_upsampler">
+            <param name="target_rate" value="$(arg target_rate)"/>
+        </node>
+    </group>
+
+</launch>

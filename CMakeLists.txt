@@ -250,6 +250,12 @@ target_link_libraries(tf_relay_node ${catkin_LIBRARIES})
 add_executable(repub_odom_tf_desired src/repub_odom_tf_desired.cpp)
 target_link_libraries(repub_odom_tf_desired ${catkin_LIBRARIES})
 
+add_executable(imu_upsampler src/imu_upsampler.cpp)
+target_link_libraries(imu_upsampler ${catkin_LIBRARIES})
+
+add_executable(distance_filter src/distance_filter.cpp)
+target_link_libraries(distance_filter ${catkin_LIBRARIES})
+
 # link directories
 link_directories(
         ${PCL_LIBRARY_DIRS}
