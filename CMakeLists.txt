@@ -241,6 +241,9 @@ target_link_libraries(imu_calibration ${catkin_LIBRARIES})
 add_executable(imu_calibration_v2 src/imu_calibration_v2.cpp)
 target_link_libraries(imu_calibration_v2 ${catkin_LIBRARIES})
 
+add_executable(distance_filter_adaptive src/distance_filter_adaptive.cpp)
+target_link_libraries(distance_filter_adaptive ${catkin_LIBRARIES})
+
 add_executable(distance_calibration src/distance_calibration.cpp)
 target_link_libraries(distance_calibration ${catkin_LIBRARIES})
 
@@ -270,7 +273,7 @@ target_link_libraries(map_global_generation ${catkin_LIBRARIES} ${PCL_LIBRARIES}
 add_dependencies(map_global_generation ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Install
-install(TARGETS gnss_verifier repub_odom_orientation_zero base_station_send_tf imu_calibration imu_calibration_v2 distance_calibration map_global_generation
+install(TARGETS gnss_verifier repub_odom_orientation_zero base_station_send_tf imu_calibration imu_calibration_v2 distance_filter_adaptive distance_calibration map_global_generation
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

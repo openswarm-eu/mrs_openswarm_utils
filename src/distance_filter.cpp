@@ -48,33 +48,9 @@ private:
     ros::Time last_time_;
     double filtered_range_;
 
-    // float computeMedian()
-    // {
-    //     std::vector<float> temp(window_.begin(), window_.end());
-    //     std::sort(temp.begin(), temp.end());
-    //     return temp[temp.size() / 2];
-    // }
-
     float computeMedian()
     {
-        std::vector<float> temp;
-
-        float max_allowed = filtered_range_ + 0.5f;  // adaptive ceiling rejection
-
-        for (float v : window_)
-        {
-            if (v <= max_allowed)
-            {
-                temp.push_back(v);
-            }
-        }
-
-        // SAFETY: if everything got rejected
-        if (temp.empty())
-        {
-            return filtered_range_;  // fallback to last good value
-        }
-
+        std::vector<float> temp(window_.begin(), window_.end());
         std::sort(temp.begin(), temp.end());
         return temp[temp.size() / 2];
     }
@@ -112,7 +88,7 @@ private:
         last_time_ = now;
 
         // Bootstrap logic
-        if (bootstrap_)
+        if (bootstrap_ == true)
         {
             ROS_INFO_ONCE("Range filter: entering bootstrap phase");
             filtered_range_ = median;
@@ -130,7 +106,7 @@ private:
         }
 
         // JUMP CHECK (only for increasing distance)
-        if (jump_check_)
+        if (jump_check_ == true)
         {
             double max_jump = max_jump_rate_ * dt;
             double diff = fabs(median - filtered_range_);
