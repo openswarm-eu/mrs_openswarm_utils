@@ -26,7 +26,7 @@ public:
         vel_sub_ = nh.subscribe("/hw_api/velocity", 10,
                                  &AdaptiveAltitudeFilter::velCallback, this);
 
-        alt_pub_ = nh.advertise<std_msgs::Float32>("/filtered_altitude", 10);
+        alt_pub_ = nh.advertise<sensor_msgs::Range>("/filtered_altitude", 10);
         vel_pub_ = nh.advertise<std_msgs::Float32>("/velocity_xy", 10);
         alpha_pub_ = nh.advertise<std_msgs::Float32>("/filter_alpha", 10);
 
@@ -120,9 +120,15 @@ private:
             alpha * z_meas + (1.0 - alpha) * filtered_altitude_;
 
 
-        std_msgs::Float32 out;
-        out.data = filtered_altitude_;
-        alt_pub_.publish(out);
+        sensor_msgs::Range out_range;
+        out_range.header = msg->header;
+        out_range.radiation_type = msg->radiation_type;
+        out_range.field_of_view = msg->field_of_view;
+        out_range.min_range = msg->min_range;
+        out_range.max_range = msg->max_range;
+        out_range.range = filtered_altitude_;
+        alt_pub_.publish(out_range);
+
     }
 };
 
