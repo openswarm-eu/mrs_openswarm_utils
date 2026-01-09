@@ -3,6 +3,7 @@
 #include <nav_msgs/Odometry.h>
 #include <std_msgs/Float32.h>
 #include <geometry_msgs/Vector3Stamped.h>
+#include <mrs_msgs/ControlManagerDiagnostics.h>
 #include <cmath>
 
 class AdaptiveAltitudeFilter
@@ -14,11 +15,14 @@ public:
 
         nh.param("alpha_max", alpha_max_, 0.9);
         nh.param("alpha_min", alpha_min_, 0.05);
-        nh.param("velocity_gain", velocity_gain_, 0.4);
+        nh.param("alpha_takeoff", alpha_takeoff_, 0.1);
+        nh.param("velocity_gain", velocity_gain_, false);
+        nh.param("velocity_zero", velocity_zero_, 0.05);
         nh.param("velocity_min", velocity_min_, 0.05);
         nh.param("velocity_max", velocity_max_, 5.0);
         nh.param("drop_threshold", drop_threshold_, 0.5);
-        nh.param("bad_counter_limit", bad_counter_limit_, 4);
+        nh.param("bad_counter_limit", bad_counter_limit_, 1);
+        nh.param("drone_flying", drone_flying, false);
 
         lidar_sub_ = nh.subscribe("/hw_api/distance_sensor", 10,
                                   &AdaptiveAltitudeFilter::lidarCallback, this);
@@ -26,9 +30,16 @@ public:
         vel_sub_ = nh.subscribe("/hw_api/velocity", 10,
                                  &AdaptiveAltitudeFilter::velCallback, this);
 
+        fly_sub_ = nh.subscribe("/control_manager/diagnostics", 10,
+                                 &AdaptiveAltitudeFilter::flyCallback, this);
+
         alt_pub_ = nh.advertise<sensor_msgs::Range>("/filtered_altitude", 10);
         vel_pub_ = nh.advertise<std_msgs::Float32>("/velocity_xy", 10);
         alpha_pub_ = nh.advertise<std_msgs::Float32>("/filter_alpha", 10);
+
+        ROS_INFO("Adaptive Altitude Filter initialized.");
+        ROS_INFO("Parameters: alpha_max=%.2f, alpha_min=%.2f, velocity_gain=%d, velocity_zero=%.2f, velocity_min=%.2f, velocity_max=%.2f, drop_threshold=%.2f, bad_counter_limit=%d",
+                 alpha_max_, alpha_min_, velocity_gain_, velocity_zero_, velocity_min_, velocity_max_, drop_threshold_, bad_counter_limit_);
 
         initialized_ = false;
         bad_counter_ = 0;
@@ -38,13 +49,17 @@ public:
 private:
     ros::Subscriber lidar_sub_;
     ros::Subscriber vel_sub_;
+    ros::Subscriber fly_sub_;
     ros::Publisher alt_pub_;
     ros::Publisher vel_pub_;
     ros::Publisher alpha_pub_;
 
+    double alpha;
     double alpha_max_;
     double alpha_min_;
-    double velocity_gain_;
+    double alpha_takeoff_;
+    bool velocity_gain_;
+    double velocity_zero_;
     double velocity_min_;
     double velocity_max_;
     double drop_threshold_;
@@ -55,22 +70,21 @@ private:
     int bad_counter_;
     int bad_counter_limit_;
 
+    bool drone_flying;
+
     bool initialized_;
 
-    // void odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
-    // {
-    //     const auto& v = msg->twist.twist.linear;
-    //     v_xy_ = std::hypot(v.x, v.y);
-    //     if (v_xy_ < 0.05)
-    //         v_xy_ = 0.0;
-    // }
+    void flyCallback(const mrs_msgs::ControlManagerDiagnostics::ConstPtr& msg)
+    {
+        drone_flying = msg->flying_normally;
+    }
 
     void velCallback(const geometry_msgs::Vector3Stamped::ConstPtr& msg)
     {
         const auto& vx = msg->vector.x;
         const auto& vy = msg->vector.y;
         v_xy_ = std::hypot(vx, vy);
-        if (v_xy_ < velocity_min_)
+        if (v_xy_ < velocity_zero_)
             v_xy_ = 0.0;
         std_msgs::Float32 out;
         out.data = v_xy_;
@@ -88,32 +102,60 @@ private:
             return;
         }
 
-        double innovation = z_meas - filtered_altitude_;
-        bool suspicious = innovation < -drop_threshold_;
-
-        if (suspicious)
-            bad_counter_++;
-        else
+        if (!drone_flying)
+        {
+            alpha = alpha_takeoff_;
             bad_counter_ = 0;
-
-        bool bush_detected = bad_counter_ >= bad_counter_limit_;
-
-        double alpha;
-
-        if (v_xy_ < velocity_min_)
-        {
-            // Takeoff / hover
-            alpha = alpha_max_;
-        }
-        else if (bush_detected)
-        {
-            // Freeze altitude over bushes
-            alpha = 0.0;
+            ROS_INFO_THROTTLE(5, "Drone not flying, alpha = %.2f.", alpha);
         }
         else
         {
-            // Normal cruise
-            alpha = alpha_min_;
+            double innovation = z_meas - filtered_altitude_;
+            bool suspicious = innovation < -drop_threshold_;
+
+            if (suspicious)
+            {
+                bad_counter_++;
+            }
+            else
+                bad_counter_ = 0;
+
+            bool bush_detected = bad_counter_ >= bad_counter_limit_;
+
+
+            ROS_INFO_THROTTLE(1, "v_xy_: %.2f, suspicious: %d, bad_counter_: %d, bush_detected: %d",
+                            v_xy_, suspicious, bad_counter_, bush_detected);
+
+            if (bush_detected)
+            {
+                // Freeze altitude over bushes
+                ROS_INFO_THROTTLE(1, "Bush detected");
+                alpha = 0.0;
+            }
+            else
+            {
+                // Normal cruise
+                ROS_INFO_THROTTLE(1, "Normal cruise");
+                //alpha = alpha_min_;
+
+                double ratio;
+                if (velocity_gain_ == false)
+                    ratio = 1.0;
+                else
+                {
+                    // Smooth interpolation between alpha_max_ and alpha_min_
+                    ratio = (v_xy_ - velocity_min_) / (velocity_max_ - velocity_min_);
+
+                    if (ratio < 0.0)
+                        ratio = 0.0;
+                    else if (ratio > 1.0)
+                        ratio = 1.0;
+                }
+
+                alpha = alpha_max_ +
+                    ratio * (alpha_min_ - alpha_max_);
+                ROS_INFO_THROTTLE(1, "Normal cruise, ratio: %.2f, alpha: %.2f", ratio, alpha);
+            }
         }
 
         filtered_altitude_ =
