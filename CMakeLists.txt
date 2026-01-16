@@ -22,7 +22,7 @@ find_package(catkin REQUIRED COMPONENTS
   tf2
   tf2_ros
   tf2_sensor_msgs
-  lio_sam
+  # lio_sam
   mrs_modules_msgs
   tf2_geometry_msgs
 )
@@ -268,12 +268,12 @@ link_directories(
 
 add_definitions(${PCL_DEFINITIONS})
 
-add_executable(map_global_generation src/map_global_generation.cpp)
-target_link_libraries(map_global_generation ${catkin_LIBRARIES} ${PCL_LIBRARIES})
-add_dependencies(map_global_generation ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+#add_executable(map_global_generation src/map_global_generation.cpp)
+#target_link_libraries(map_global_generation ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+#add_dependencies(map_global_generation ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Install
-install(TARGETS gnss_verifier repub_odom_orientation_zero base_station_send_tf imu_calibration imu_calibration_v2 distance_filter_adaptive distance_calibration map_global_generation
+install(TARGETS gnss_verifier repub_odom_orientation_zero base_station_send_tf imu_calibration imu_calibration_v2 distance_filter_adaptive distance_calibration
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
