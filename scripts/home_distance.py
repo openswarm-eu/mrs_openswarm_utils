@@ -10,8 +10,8 @@ class EuclideanDistanceNode:
         rospy.init_node('euclidean_distance_node', anonymous=False)
 
         # Load reference point from ROS parameters
-        self.ref_x = rospy.get_param("~ref_x", 4.9)
-        self.ref_y = rospy.get_param("~ref_y", -3.7)
+        self.ref_x = rospy.get_param("~ref_x", 0.0)
+        self.ref_y = rospy.get_param("~ref_y", 0.0)
 
         # Fixed publish rate (every 2 seconds)
         self.publish_interval = 2.0  # seconds
@@ -20,8 +20,8 @@ class EuclideanDistanceNode:
         self.current_position = None
 
         # Publishers and Subscribers
-        self.distance_pub = rospy.Publisher('/uav9/home_distance', Float64, queue_size=10)
-        rospy.Subscriber('/uav9/estimation_manager/odom_main', Odometry, self.odom_callback)
+        self.distance_pub = rospy.Publisher('home_distance', Float64, queue_size=10)
+        rospy.Subscriber('estimation_manager/odom_main', Odometry, self.odom_callback)
 
         # Timer to trigger distance publishing
         rospy.Timer(rospy.Duration(self.publish_interval), self.publish_distance)
