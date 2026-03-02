@@ -63,6 +63,12 @@ When launched with namespace `uav1` and node name `global_map_provider`:
 - `~allow_empty_response` (`bool`, default: `false`)
   - If `false`: returns service failure when no map has been received yet.
   - If `true`: returns success with an empty cloud when no map is available.
+- `~target_frame` (`string`, default: `""`)
+  - If non-empty, transforms the returned cloud from source frame (e.g. `/uavX/odom`)
+    into this frame before optional downsampling.
+  - If empty, returns cloud in its original frame.
+- `~tf_timeout` (`double`, default: `0.2`)
+  - TF lookup timeout in seconds for transforming source frame to `~target_frame`.
 
 ### Behavior summary
 
@@ -70,6 +76,9 @@ When launched with namespace `uav1` and node name `global_map_provider`:
 2. On service request:
    - If no cached map:
      - fail, or return empty cloud according to `~allow_empty_response`.
+   - If `~target_frame` is configured and differs from source frame:
+     - transform cloud to `~target_frame` via TF (timestamped lookup with latest-transform fallback).
+     - if transform fails, service call fails.
    - If `resolution` is valid and positive:
      - apply voxel downsampling.
    - Otherwise:
@@ -83,6 +92,9 @@ Example:
 
 ```bash
 roslaunch mrs_openswarm_utils global_map_provider.launch UAV_NAME:=uav1 global_map_topic:=global_map
+
+# Example with frame conversion
+roslaunch mrs_openswarm_utils global_map_provider.launch UAV_NAME:=uav1 target_frame:=common_origin
 ```
 
 ## map_global_generation
