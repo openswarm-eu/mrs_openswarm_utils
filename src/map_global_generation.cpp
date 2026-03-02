@@ -9,7 +9,6 @@
 #include "mrs_openswarm_utils/save_map.h"
 #include <pcl/io/pcd_io.h>
 #include <pcl/registration/icp.h>
-#include "lio_sam/save_map.h"
 
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -17,6 +16,9 @@
 
 #include <vector>
 #include <string>
+#include <thread>
+#include <future>
+#include <chrono>
 #include <boost/shared_ptr.hpp>
 
 typedef pcl::PointCloud<pcl::PointXYZ> PointCloud;
@@ -38,6 +40,7 @@ class MapGeneration
 
             nh_.param<std::vector<std::string>>("uav_names", uav_names_, std::vector<std::string>());
             nh_.param<std::string>("frame_output", frame_output_, "common_origin");
+            nh_.param<std::string>("global_map_service", global_map_service_, "global_map_provider/get_global_map");
             nh_.param("wait_time", wait_time_, 5.0);
             nh_.param("save_pcd_file", save_pcd_file_, true);
             nh_.param("use_icp", use_icp_, true);
@@ -45,41 +48,36 @@ class MapGeneration
             ROS_INFO("Name of UAV:  %s", uav_name_.c_str());
             ROS_INFO("Number of Robots:  %li", uav_names_.size());
 
-            singleRobot robot;
+            // Publisher global map
+            map_pub = nh_.advertise<sensor_msgs::PointCloud2>("globalMap", 1);
+            // Service Server
+            srvSaveMap  = nh_.advertiseService("save_map", &MapGeneration::saveMapService, this);
+
+            if (uav_names_.empty())
+            {
+                ROS_WARN("Parameter 'uav_names' is empty. save_map service will not be able to aggregate clouds.");
+            }
 
             for(int it = 0; it < uav_names_.size(); it++)
             {
+                singleRobot robot;
                 std::string robot_name_list = uav_names_[it].c_str();
                 name_ = "/" + robot_name_list;
 
                 robot.id_ = it; // robot ID and name
                 robot.name_ = name_;
-                
-                if(uav_name_ == robot_name_list)
-		        {
-                    // Subscriber its map
-                    //robot.map_sub_ = nh_.subscribe<sensor_msgs::PointCloud2>(name_ + "/distributedMapping/globalMap", 1, boost::bind(&MapGeneration::mapHandler, this, _1, it));
-                    // Publisher global map
-                    map_pub = nh_.advertise<sensor_msgs::PointCloud2>("globalMap", 1);
-                    // Service Server
-                    srvSaveMap  = nh_.advertiseService("save_map", &MapGeneration::saveMapService, this);
-                    // Service Client
-                    robot.service_name_ = name_ + "/lio_sam/save_map";
-                    robot.srv_client_map = nh_.serviceClient<lio_sam::save_map>(robot.service_name_);
-                    // Define the ICP target
-                    robot_target = it;
-                }
-                else
-                {
-                    // Subscriber its map
-                    // robot.map_sub_ = nh_.subscribe<sensor_msgs::PointCloud2>(name_ + "/distributedMapping/globalMap", 1, boost::bind(&MapGeneration::mapHandler, this, _1, it));
-                    // Service Client
-                    robot.service_name_ = name_ + "/lio_sam/save_map";
-                    robot.srv_client_map = nh_.serviceClient<lio_sam::save_map>(robot.service_name_);
-                }
+
+                const std::string service_suffix =
+                  (!global_map_service_.empty() && global_map_service_.front() == '/') ? global_map_service_ : "/" + global_map_service_;
+                robot.service_name_ = name_ + service_suffix;
+                robot.srv_client_map = nh_.serviceClient<mrs_openswarm_utils::save_map>(robot.service_name_);
+
                 robots.push_back(robot);
                 save_it.push_back(it);
             }
+
+            // Leader reference is always the first UAV in uav_names.
+            robot_target = 0;
 
             ROS_INFO_ONCE("Map Generation Service is ready.");
         }
@@ -96,29 +94,68 @@ class MapGeneration
         {
 
             // Path to save map: TODO
-            if(req.destination.empty()) saveMapDirectory_ = std::getenv("PWD");
-            else saveMapDirectory_ = std::getenv("PWD") + req.destination;
+            const char* pwd = std::getenv("PWD");
+            if(req.destination.empty()) saveMapDirectory_ = (pwd != nullptr) ? pwd : ".";
+            else saveMapDirectory_ = ((pwd != nullptr) ? std::string(pwd) : std::string(".")) + req.destination;
             ROS_INFO("Save destination:  %s", saveMapDirectory_.c_str());
-
-            // Service message
-            lio_sam::save_map srv;
 
             // Wait for the service to be available
             ros::Duration timeout_(wait_time_);
+
+            size_t successful_maps = 0;
             
             for(int it = 0; it < uav_names_.size(); it++)
             {
+                robots[it].cloud_received = false;
+                robots[it].cloud->clear();
+
                 // Wait for the service with a timeout
                 if (ros::service::waitForService(robots[it].service_name_, timeout_))
                 {
-                    ros::service::waitForService(robots[it].service_name_);
-                    if (robots[it].srv_client_map.call(srv))
-                    {
-                        robots[it].cloud.reset(new pcl::PointCloud<pcl::PointXYZ>());
+                    auto service_request = std::make_shared<mrs_openswarm_utils::save_map>();
+                    service_request->request.resolution = req.resolution;
+                    service_request->request.destination = "";
 
-                        sensor_msgs::PointCloud2 point_cloud = srv.response.global_map;
+                    std::shared_ptr<std::promise<bool>> prom_ptr = std::make_shared<std::promise<bool>>();
+                    std::future<bool> fut = prom_ptr->get_future();
+                    ros::ServiceClient service_client = robots[it].srv_client_map;
+
+                    std::thread(
+                      [service_client, service_request, prom_ptr]() mutable {
+                        bool ok = false;
+                        try
+                        {
+                          ok = service_client.call(*service_request);
+                        }
+                        catch (...)
+                        {
+                          ok = false;
+                        }
+                        prom_ptr->set_value(ok);
+                      })
+                      .detach();
+
+                    const auto wait_status = fut.wait_for(std::chrono::duration<double>(wait_time_));
+                    if (wait_status != std::future_status::ready)
+                    {
+                        ROS_ERROR("Timeout: map service call to %s exceeded %.2f s.", robots[it].name_.c_str(), wait_time_);
+                        continue;
+                    }
+
+                    const bool call_ok = fut.get();
+                    if (call_ok)
+                    {
+                        sensor_msgs::PointCloud2 point_cloud = service_request->response.cloud;
                         pcl::fromROSMsg(point_cloud, *robots[it].cloud);
-                        robots[it].cloud_received = true;
+                        if (!robots[it].cloud->empty())
+                        {
+                            robots[it].cloud_received = true;
+                            successful_maps++;
+                        }
+                        else
+                        {
+                            ROS_WARN("Received empty map from %s.", robots[it].name_.c_str());
+                        }
 
                         // Print some details about the point cloud (for demonstration)
                         ROS_INFO("Map service call successfull: %s", robots[it].name_.c_str());
@@ -136,10 +173,21 @@ class MapGeneration
                 }
             }
 
+            if (successful_maps == 0)
+            {
+                ROS_ERROR("No valid maps were received from any UAV.");
+                return false;
+            }
+
             // Combine the point clouds
             PointCloud::Ptr combined_cloud(new PointCloud);
 
-            if (use_icp_ == true)
+            const bool leader_available =
+              (robot_target >= 0) &&
+              (robot_target < static_cast<int>(robots.size())) &&
+              robots[robot_target].cloud_received;
+
+            if (use_icp_ == true && leader_available)
             {
                 // **************** ICP Module n UAVs ****************
                 // Create ICP object
@@ -158,6 +206,12 @@ class MapGeneration
                 for(int it = 0; it < uav_names_.size(); it++)
                 {
                     ROS_INFO("ICP source: %s.", robots[it].name_.c_str());
+                    if (!robots[it].cloud_received)
+                    {
+                        ROS_WARN("Skipping %s in ICP merge: no valid cloud received.", robots[it].name_.c_str());
+                        continue;
+                    }
+
                     if (robot_target == it)
                     {
                         *combined_cloud = *combined_cloud + *robots[it].cloud;
@@ -193,9 +247,21 @@ class MapGeneration
             }
             else
             {
-                ROS_INFO("ICP will not be used. Just merge all point clouds.");
+                if (use_icp_ && !leader_available)
+                {
+                    ROS_WARN("ICP enabled but leader cloud is unavailable. Falling back to direct merge.");
+                }
+                else
+                {
+                    ROS_INFO("ICP will not be used. Just merge all point clouds.");
+                }
+
                 for(int it = 0; it < uav_names_.size(); it++)
                 {
+                    if (!robots[it].cloud_received)
+                    {
+                        continue;
+                    }
                     *combined_cloud = *combined_cloud + *robots[it].cloud;
                 }
             }
@@ -214,7 +280,7 @@ class MapGeneration
             output.header.frame_id = frame_output_;  // Assuming both clouds have the same frame
 
             // Return the combined point cloud in the response
-            res.merged_cloud = output;
+            res.cloud = output;
             ROS_INFO("Point clouds successfully merged in global frame.");
 
             // Publish global map
@@ -223,10 +289,18 @@ class MapGeneration
             // Save map
             if (save_pcd_file_ == true)
             {
-                int ret = pcl::io::savePCDFileBinary(saveMapDirectory_ + "/GlobalMap.pcd", *combined_cloud);
+                pcl::io::savePCDFileBinary(saveMapDirectory_ + "/GlobalMap.pcd", *combined_cloud);
                 for(int it = 0; it < uav_names_.size(); it++)
                 {
-                    save_it[it] = pcl::io::savePCDFileBinary(saveMapDirectory_ + "/Map_uav" + std::to_string(it+1) + ".pcd", *robots[it].cloud);
+                    if (robots[it].cloud_received)
+                    {
+                        std::string uav_filename = robots[it].name_;
+                        if (!uav_filename.empty() && uav_filename.front() == '/')
+                        {
+                            uav_filename.erase(0, 1);
+                        }
+                        save_it[it] = pcl::io::savePCDFileBinary(saveMapDirectory_ + "/Map_" + uav_filename + ".pcd", *robots[it].cloud);
+                    }
                 }
             }
 
@@ -245,6 +319,7 @@ class MapGeneration
         double wait_time_;
 
         std::string saveMapDirectory_;
+        std::string global_map_service_;
 
         struct singleRobot {
             int id_; // robot id

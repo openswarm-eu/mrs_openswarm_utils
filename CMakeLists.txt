@@ -22,7 +22,6 @@ find_package(catkin REQUIRED COMPONENTS
   tf2
   tf2_ros
   tf2_sensor_msgs
-  # lio_sam
   mrs_modules_msgs
   tf2_geometry_msgs
 )
@@ -259,6 +258,10 @@ target_link_libraries(imu_upsampler ${catkin_LIBRARIES})
 add_executable(distance_filter src/distance_filter.cpp)
 target_link_libraries(distance_filter ${catkin_LIBRARIES})
 
+add_executable(global_map_provider src/global_map_provider.cpp)
+target_link_libraries(global_map_provider ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+add_dependencies(global_map_provider ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
 # link directories
 link_directories(
         ${PCL_LIBRARY_DIRS}
@@ -268,12 +271,20 @@ link_directories(
 
 add_definitions(${PCL_DEFINITIONS})
 
-#add_executable(map_global_generation src/map_global_generation.cpp)
-#target_link_libraries(map_global_generation ${catkin_LIBRARIES} ${PCL_LIBRARIES})
-#add_dependencies(map_global_generation ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_executable(map_global_generation src/map_global_generation.cpp)
+target_link_libraries(map_global_generation ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+add_dependencies(map_global_generation ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Install
 install(TARGETS gnss_verifier repub_odom_orientation_zero base_station_send_tf imu_calibration imu_calibration_v2 distance_filter_adaptive distance_calibration
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+install(TARGETS global_map_provider
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+install(TARGETS map_global_generation
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
