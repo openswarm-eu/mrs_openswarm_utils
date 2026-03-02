@@ -36,7 +36,12 @@ class MapGeneration
             nh_ = ros::NodeHandle("~");
 
             std::string ns = nh_.getNamespace();
-            uav_name_ = ns.substr(1, 4); 
+            if (!ns.empty() && ns.front() == '/')
+            {
+                ns.erase(0, 1);
+            }
+            const std::size_t slash_pos = ns.find('/');
+            uav_name_ = (slash_pos == std::string::npos) ? ns : ns.substr(0, slash_pos);
 
             nh_.param<std::vector<std::string>>("uav_names", uav_names_, std::vector<std::string>());
             nh_.param<std::string>("frame_output", frame_output_, "common_origin");
