@@ -14,6 +14,9 @@
       <param name="wait_time" value="15.0" />
       <param name="save_pcd_file" value="true" />
       <param name="use_icp" value="true" />
+      <param name="icp_max_correspondence_distance" value="0.5" />
+      <param name="icp_transformation_epsilon" value="1e-6" />
+      <param name="icp_max_iterations" value="100" />
 
       <param name="save_map_topic" value="save_map" />
 

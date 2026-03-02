@@ -49,6 +49,9 @@ class MapGeneration
             nh_.param("wait_time", wait_time_, 5.0);
             nh_.param("save_pcd_file", save_pcd_file_, true);
             nh_.param("use_icp", use_icp_, true);
+            nh_.param("icp_max_correspondence_distance", icp_max_correspondence_distance_, 0.1);
+            nh_.param("icp_transformation_epsilon", icp_transformation_epsilon_, 1e-8);
+            nh_.param("icp_max_iterations", icp_max_iterations_, 50);
 
             ROS_INFO("Name of UAV:  %s", uav_name_.c_str());
             ROS_INFO("Number of Robots:  %li", uav_names_.size());
@@ -227,9 +230,9 @@ class MapGeneration
                     icp.setInputSource(robots[it].cloud);   // Cloud to be aligned
 
                     // Set ICP parameters (optional tuning)
-                    icp.setMaxCorrespondenceDistance(0.1); // Maximum allowed distance between points
-                    icp.setTransformationEpsilon(1e-8);     // Convergence criteria
-                    icp.setMaximumIterations(50);           // Maximum iterations
+                    icp.setMaxCorrespondenceDistance(icp_max_correspondence_distance_); // Maximum allowed distance between points
+                    icp.setTransformationEpsilon(icp_transformation_epsilon_);           // Convergence criteria
+                    icp.setMaximumIterations(icp_max_iterations_);                       // Maximum iterations
 
                     // Output point cloud
                     PointCloudT::Ptr final_cloud(new PointCloudT);
@@ -345,6 +348,9 @@ class MapGeneration
 
         bool save_pcd_file_;
         bool use_icp_;
+        double icp_max_correspondence_distance_;
+        double icp_transformation_epsilon_;
+        int icp_max_iterations_;
         std::vector<int> save_it;
 
 };
