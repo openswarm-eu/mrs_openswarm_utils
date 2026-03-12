@@ -1,0 +1,18 @@
+<launch>
+
+  <arg name="UAV_NAME" default="$(optenv UAV_NAME uav1)"/>
+  <arg name="odom1_topic" default="odom1"/>
+  <arg name="odom2_topic" default="odom2"/>
+  <arg name="output_topic" default="odom2_offset"/>
+  <arg name="service_name" default="capture_altitude"/>
+
+  <group ns="$(arg UAV_NAME)">
+    <node pkg="mrs_openswarm_utils" type="odom_altitude_offset" name="odom_altitude_offset" output="screen">
+      <param name="odom1_topic" value="$(arg odom1_topic)"/>
+      <param name="odom2_topic" value="$(arg odom2_topic)"/>
+      <param name="output_topic" value="$(arg output_topic)"/>
+      <param name="service_name" value="$(arg service_name)"/>
+    </node>
+  </group>
+
+</launch>
