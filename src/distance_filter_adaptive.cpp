@@ -13,6 +13,7 @@ public:
     {
         ros::NodeHandle nh("~");
 
+        nh.param("filter_enabled", filter_enabled_, false);
         nh.param("alpha_max", alpha_max_, 0.9);
         nh.param("alpha_min", alpha_min_, 0.05);
         nh.param("alpha_takeoff", alpha_takeoff_, 0.1);
@@ -71,7 +72,7 @@ private:
     int bad_counter_limit_;
 
     bool drone_flying;
-
+    bool filter_enabled_;
     bool initialized_;
 
     void flyCallback(const mrs_msgs::ControlManagerDiagnostics::ConstPtr& msg)
@@ -99,6 +100,20 @@ private:
         {
             filtered_altitude_ = z_meas;
             initialized_ = true;
+            return;
+        }
+
+        if (!filter_enabled_)
+        {
+            ROS_INFO_ONCE("Adaptive filtering disabled, passing through raw altitude.");
+            sensor_msgs::Range out_range;
+            out_range.header = msg->header;
+            out_range.radiation_type = msg->radiation_type;
+            out_range.field_of_view = msg->field_of_view;
+            out_range.min_range = msg->min_range;
+            out_range.max_range = msg->max_range;
+            out_range.range = msg->range;
+            alt_pub_.publish(out_range);
             return;
         }
 
