@@ -1,12 +1,20 @@
 <launch>
 
     <arg name="target_rate" default="400"/>
+    <arg name="apply_offset_enabled" default="false"/>
+    <arg name="max_size" default="1000"/>
+    <arg name="orientation_topic_in" default="hw_api/orientation_in"/>
+    <arg name="orientation_topic_out" default="hw_api/orientation"/>
 
     <arg name="UAV_NAME" default="$(optenv UAV_NAME uav1)"/>
 
     <group ns="$(arg UAV_NAME)">
         <node pkg="mrs_openswarm_utils" type="imu_upsampler" name="imu_upsampler">
             <param name="target_rate" value="$(arg target_rate)"/>
+            <param name="apply_offset_enabled" value="$(arg apply_offset_enabled)"/>
+            <param name="max_size" value="$(arg max_size)"/>
+            <param name="orientation_topic_in" value="$(arg orientation_topic_in)"/>
+            <param name="orientation_topic_out" value="$(arg orientation_topic_out)"/>
         </node>
     </group>
 

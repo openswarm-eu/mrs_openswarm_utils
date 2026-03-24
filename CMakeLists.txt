@@ -256,6 +256,9 @@ target_link_libraries(repub_odom_tf_desired ${catkin_LIBRARIES})
 add_executable(imu_upsampler src/imu_upsampler.cpp)
 target_link_libraries(imu_upsampler ${catkin_LIBRARIES})
 
+add_executable(odom_upsampler src/odom_upsampler.cpp)
+target_link_libraries(odom_upsampler ${catkin_LIBRARIES})
+
 add_executable(distance_filter src/distance_filter.cpp)
 target_link_libraries(distance_filter ${catkin_LIBRARIES})
 

@@ -1,0 +1,17 @@
+<launch>
+
+    <arg name="target_rate" default="100"/>
+    <arg name="input_topic" default="estimation_manager/odom_main"/>
+    <arg name="output_topic" default="estimation_manager/odom_main_upsampled"/>
+
+    <arg name="UAV_NAME" default="$(optenv UAV_NAME uav1)"/>
+
+    <group ns="$(arg UAV_NAME)">
+        <node pkg="mrs_openswarm_utils" type="odom_upsampler" name="odom_upsampler">
+            <param name="target_rate" value="$(arg target_rate)"/>
+            <param name="input_topic" value="$(arg input_topic)"/>
+            <param name="output_topic" value="$(arg output_topic)"/>
+        </node>
+    </group>
+
+</launch>
