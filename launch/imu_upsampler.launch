@@ -2,6 +2,7 @@
 
     <arg name="target_rate" default="400"/>
     <arg name="apply_offset_enabled" default="false"/>
+    <arg name="external_imu" default="false"/>
     <arg name="max_size" default="1000"/>
     <arg name="orientation_topic_in" default="hw_api/orientation_in"/>
     <arg name="orientation_topic_out" default="hw_api/orientation"/>
@@ -12,6 +13,7 @@
         <node pkg="mrs_openswarm_utils" type="imu_upsampler" name="imu_upsampler">
             <param name="target_rate" value="$(arg target_rate)"/>
             <param name="apply_offset_enabled" value="$(arg apply_offset_enabled)"/>
+            <param name="external_imu" value="$(arg external_imu)"/>
             <param name="max_size" value="$(arg max_size)"/>
             <param name="orientation_topic_in" value="$(arg orientation_topic_in)"/>
             <param name="orientation_topic_out" value="$(arg orientation_topic_out)"/>

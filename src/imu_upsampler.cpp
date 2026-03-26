@@ -14,6 +14,7 @@ bool has_last = false;
 
 double target_rate;
 bool apply_offset_enabled = false;
+bool external_imu = false;
 int max_size = 1000;
 bool heading_offset_ready = false;
 double heading_offset = 0.0;
@@ -92,6 +93,19 @@ void orientationCallback(const geometry_msgs::QuaternionStamped::ConstPtr& msg)
     orientation_pub.publish(out);
 }
 
+void publishOrientationFromImu(const sensor_msgs::Imu& imu_msg)
+{
+    if (!orientation_pub)
+    {
+        return;
+    }
+
+    geometry_msgs::QuaternionStamped out;
+    out.header = imu_msg.header;
+    out.quaternion = imu_msg.orientation;
+    orientation_pub.publish(out);
+}
+
 sensor_msgs::Imu interpolateImu(const sensor_msgs::Imu& a,
                                 const sensor_msgs::Imu& b,
                                 ros::Time stamp)
@@ -157,6 +171,7 @@ int main(int argc, char** argv)
 
     pnh.param("target_rate", target_rate, 400.0); // output at 400 Hz
     pnh.param("apply_offset_enabled", apply_offset_enabled, false);
+    pnh.param("external_imu", external_imu, false);
     pnh.param("max_size", max_size, 1000);
     pnh.param("orientation_topic_in", orientation_topic_in, std::string("hw_api/orientation_in"));
     pnh.param("orientation_topic_out", orientation_topic_out, std::string("hw_api/orientation"));
@@ -169,7 +184,11 @@ int main(int argc, char** argv)
 
     ros::Subscriber sub = nh.subscribe("hw_api/imu_in", 10, imuCallback);
     ros::Publisher pub = nh.advertise<sensor_msgs::Imu>("hw_api/imu", 50);
-    ros::Subscriber orientation_sub = nh.subscribe(orientation_topic_in, 10, orientationCallback);
+    ros::Subscriber orientation_sub;
+    if (!external_imu)
+    {
+        orientation_sub = nh.subscribe(orientation_topic_in, 10, orientationCallback);
+    }
     orientation_pub = nh.advertise<geometry_msgs::QuaternionStamped>(orientation_topic_out, 50);
 
     ros::Rate r(target_rate);
@@ -199,6 +218,10 @@ int main(int argc, char** argv)
                     applyHeadingOffset(out);
                 }
                 pub.publish(out);
+                if (external_imu)
+                {
+                    publishOrientationFromImu(out);
+                }
             }
             // Otherwise just publish last known
             else
@@ -210,6 +233,10 @@ int main(int argc, char** argv)
                     applyHeadingOffset(out);
                 }
                 pub.publish(out);
+                if (external_imu)
+                {
+                    publishOrientationFromImu(out);
+                }
             }
         }
 
